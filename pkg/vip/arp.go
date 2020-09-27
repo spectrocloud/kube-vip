@@ -118,10 +118,8 @@ func gratuitousARPMessage(ip net.IP, mac net.HardwareAddr) (*arpMessage, error) 
 
 	arpRequest = !arpRequest
 	if arpRequest {
-		log.Infof("Broadcasting ARP request for %s (%s)", ip, mac)
 		return gratuitousARPRequest(ip, mac)
 	}
-	log.Infof("Broadcasting ARP reply for %s (%s)", ip, mac)
 	return gratuitousARPReply(ip, mac)
 }
 
