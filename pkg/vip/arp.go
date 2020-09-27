@@ -23,6 +23,8 @@ const (
 
 var (
 	ethernetBroadcast = net.HardwareAddr{0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
+	// arpRequest is used to flip between garp request or garp reply
+	arpRequest = true
 )
 
 func htons(p uint16) uint16 {
@@ -64,16 +66,29 @@ func (m *arpMessage) bytes() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// gratuitousARPRequest returns an ARP message that contains a gratuitous ARP
+// request from the specified sender.
+func gratuitousARPRequest(ip net.IP, mac net.HardwareAddr) (*arpMessage, error) {
+	m := &arpMessage{
+		arpHeader{
+			1,            // Ethernet
+			0x0800,       // IPv4
+			hwLen,        // 48-bit MAC Address
+			net.IPv4len,  // 32-bit IPv4 Address
+			opARPRequest, // ARP Request
+		},
+		mac,
+		ip.To4(),
+		ethernetBroadcast, // target mac broadcast
+		ip.To4(),          // https://tools.ietf.org/html/rfc5944#section-4.6
+	}
+
+	return m, nil
+}
+
 // gratuitousARPReply returns an ARP message that contains a gratuitous ARP
 // reply from the specified sender.
 func gratuitousARPReply(ip net.IP, mac net.HardwareAddr) (*arpMessage, error) {
-	if ip.To4() == nil {
-		return nil, fmt.Errorf("%q is not an IPv4 address", ip)
-	}
-	if len(mac) != hwLen {
-		return nil, fmt.Errorf("%q is not an Ethernet MAC address", mac)
-	}
-
 	m := &arpMessage{
 		arpHeader{
 			1,           // Ethernet
@@ -84,11 +99,30 @@ func gratuitousARPReply(ip net.IP, mac net.HardwareAddr) (*arpMessage, error) {
 		},
 		mac,
 		ip.To4(),
-		ethernetBroadcast,
-		net.IPv4bcast,
+		mac,
+		ip.To4(),
 	}
 
 	return m, nil
+}
+
+// gratuitousARPMessage return a gARP request or gARP reply randomly
+// because different devices may support either one of them
+func gratuitousARPMessage(ip net.IP, mac net.HardwareAddr) (*arpMessage, error) {
+	if ip.To4() == nil {
+		return nil, fmt.Errorf("%q is not an IPv4 address", ip)
+	}
+	if len(mac) != hwLen {
+		return nil, fmt.Errorf("%q is not an Ethernet MAC address", mac)
+	}
+
+	arpRequest = !arpRequest
+	if arpRequest {
+		log.Infof("Broadcasting ARP request for %s (%s)", ip, mac)
+		return gratuitousARPRequest(ip, mac)
+	}
+	log.Infof("Broadcasting ARP reply for %s (%s)", ip, mac)
+	return gratuitousARPReply(ip, mac)
 }
 
 // sendARP sends the given ARP message via the specified interface.
@@ -111,9 +145,6 @@ func sendARP(iface *net.Interface, m *arpMessage) error {
 		Halen:    m.hardwareAddressLength,
 	}
 	target := ethernetBroadcast
-	if m.opcode == opARPReply {
-		target = m.targetHardwareAddress
-	}
 	for i := 0; i < len(target); i++ {
 		ll.Addr[i] = target[i]
 	}
@@ -145,10 +176,11 @@ func ARPSendGratuitous(address, ifaceName string) error {
 		return fmt.Errorf("failed to parse address %s", ip)
 	}
 
-	log.Infof("Broadcasting ARP update for %s (%s) via %s", address, iface.HardwareAddr, iface.Name)
-	m, err := gratuitousARPReply(ip, iface.HardwareAddr)
+	m, err := gratuitousARPMessage(ip, iface.HardwareAddr)
 	if err != nil {
 		return err
 	}
+
+	log.Infof("Broadcasting ARP request for %s (%s) via %s", address, iface.HardwareAddr, iface.Name)
 	return sendARP(iface, m)
 }
