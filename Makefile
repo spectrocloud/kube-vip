@@ -82,3 +82,12 @@ check:
 
 run: install
 	@$(TARGET)
+
+
+VIP_IMG := gcr.io/spectro-images-public/release/kube-vip/kube-vip
+docker-build: 
+	docker build . -t ${VIP_IMG}:$(DOCKERTAG) -f Dockerfile.local
+
+docker-push: ## Pushes docker image to container registry
+	docker push ${VIP_IMG}:$(DOCKERTAG)
+	
