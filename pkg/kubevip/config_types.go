@@ -30,6 +30,9 @@ type Config struct {
 	// Address is the IP or DNS Name to use as a VirtualIP
 	Address string `yaml:"address"`
 
+	// use DDNS to allocate IP when Address is set to a DNS Name
+	DDNS bool `yaml:"ddns"`
+
 	// GratuitousARP will broadcast an ARP update when the VIP changes host
 	GratuitousARP bool `yaml:"gratuitousARP"`
 

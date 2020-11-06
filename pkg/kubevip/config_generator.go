@@ -48,6 +48,9 @@ const (
 	// kube-vip will try to resolve it and use the IP as a VIP
 	address = "address"
 
+	//vipDdns - defines if use dynamic dns to allocate IP for "address"
+	vipDdns = "vip_ddns"
+
 	//vipSingleNode - defines the vip start as a single node cluster
 	vipSingleNode = "vip_singlenode"
 
@@ -163,6 +166,16 @@ func ParseEnvironment(c *Config) error {
 		c.VIP = env
 	} else {
 		c.Address = os.Getenv(address)
+	}
+
+	// Find vipDdns
+	env = os.Getenv(vipDdns)
+	if env != "" {
+		b, err := strconv.ParseBool(env)
+		if err != nil {
+			return err
+		}
+		c.DDNS = b
 	}
 
 	// Find vip address cidr range
