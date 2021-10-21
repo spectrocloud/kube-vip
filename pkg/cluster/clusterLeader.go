@@ -288,6 +288,15 @@ func (cluster *Cluster) StartLeaderCluster(c *kubevip.Config, sm *Manager) error
 							case <-ctx.Done(): // if cancel() execute
 								return
 							default:
+								// if not use dns, then need to keep add IP here, for the case that network restart VIP will be gone
+								// for dns case, the dnsUpdater is keep adding IP to underline link
+								if !cluster.Network.IsDNS() {
+									err = cluster.Network.AddIP()
+									if err != nil {
+										log.Warnf("failed to add IP: %v", err)
+									}
+								}
+
 								// Gratuitous ARP, will broadcast to new MAC <-> IP
 								err = vip.ARPSendGratuitous(cluster.Network.IP(), c.Interface)
 								if err != nil {
