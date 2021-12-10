@@ -20,7 +20,7 @@ type Callback func(*nclient4.Lease)
 // DHCPClient is responsible for maintaining ipv4 lease for one specified interface
 type DHCPClient struct {
 	iface          *net.Interface
-	ddnsHostName string
+	ddnsHostName   string
 	lease          *nclient4.Lease
 	initRebootFlag bool
 	requestedIP    net.IP
