@@ -35,6 +35,13 @@ func (d *ipUpdater) Run(ctx context.Context) {
 				ip, err := lookupHost(d.vip.DNSName())
 				if err != nil {
 					log.Warnf("cannot lookup %s: %v", d.vip.DNSName(), err)
+					if d.vip.IsDDNS() {
+						// if ddns and can't resolve address
+						// panic and restart the pod
+						// as renew and rebind are not working
+						// after lease expires
+						panic(err.Error())
+					}
 					// fallback to renewing the existing IP
 					ip = d.vip.IP()
 				}
