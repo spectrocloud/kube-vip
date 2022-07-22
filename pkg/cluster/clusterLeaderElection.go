@@ -31,7 +31,10 @@ import (
 	watchtools "k8s.io/client-go/tools/watch"
 )
 
-const plunderLock = "plndr-cp-lock"
+const (
+	plunderLock    = "plndr-cp-lock"
+	plunderOldLock = "plunder-lock"
+)
 
 // Manager degines the manager of the load-balancing services
 type Manager struct {
@@ -175,6 +178,93 @@ func (cluster *Cluster) StartCluster(c *kubevip.Config, sm *Manager, bgpServer *
 		}
 	}
 
+	loseElectionCallBack := func() {
+		// we can do cleanup here
+		log.Info("This node is becoming a follower within the cluster")
+
+		// Stop the dns context
+		cancelDNS()
+		// Stop the Arp context if it is running
+		cancelArp()
+
+		// Stop the BGP server
+		if bgpServer != nil {
+			err = bgpServer.Close()
+			if err != nil {
+				log.Warnf("%v", err)
+			}
+		}
+
+		err = cluster.Network.DeleteIP()
+		if err != nil {
+			log.Warnf("%v", err)
+		}
+
+		log.Fatal("lost leadership, restarting kube-vip")
+	}
+
+	newLeaderCallBack := func(identity string) {
+		// we're notified when new leader elected
+		log.Infof("Node [%s] is assuming leadership of the cluster", identity)
+	}
+
+	pods, err := sm.KubernetesClient.CoreV1().Pods("kube-system").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return err
+	}
+
+	oldKubevipPresent := false
+	for _, pod := range pods.Items {
+		if pod.Spec.Containers[0].Image == "gcr.io/spectro-images-public/release/kube-vip/kube-vip:0.2.2" {
+			oldKubevipPresent = true
+			log.Info("kube-vip 0.2.2 found")
+			log.Infof("Beginning cluster membership, namespace [%s], lock name [%s], id [%s]", c.Namespace, plunderOldLock, id)
+			break
+		}
+	}
+
+	goodToGo := make(chan string, 1)
+
+	if oldKubevipPresent {
+		oldPlunderLock := &resourcelock.LeaseLock{
+			LeaseMeta: metav1.ObjectMeta{
+				Name:      plunderOldLock,
+				Namespace: c.Namespace,
+			},
+			Client: sm.KubernetesClient.CoordinationV1(),
+			LockConfig: resourcelock.ResourceLockConfig{
+				Identity: id,
+			},
+		}
+
+		go func() {
+			leaderelection.RunOrDie(ctx, leaderelection.LeaderElectionConfig{
+				Lock:            oldPlunderLock,
+				ReleaseOnCancel: true,
+				LeaseDuration:   time.Duration(c.LeaseDuration) * time.Second,
+				RenewDeadline:   time.Duration(c.RenewDeadline) * time.Second,
+				RetryPeriod:     time.Duration(c.RetryPeriod) * time.Second,
+				Callbacks: leaderelection.LeaderCallbacks{
+					OnStartedLeading: func(ctx context.Context) {
+						goodToGo <- "yes"
+					},
+					OnStoppedLeading: func() {
+						loseElectionCallBack()
+					},
+					OnNewLeader: newLeaderCallBack,
+				},
+			})
+		}()
+	} else {
+		err := sm.KubernetesClient.CoordinationV1().Leases(c.Namespace).Delete(ctx, plunderOldLock, metav1.DeleteOptions{})
+		if err != nil {
+			log.Fatalf("could not delete 0.2.2 lease %s", plunderOldLock)
+		}
+		goodToGo <- "yes"
+	}
+
+	<-goodToGo
+
 	// start the leader election code loop
 	leaderelection.RunOrDie(ctx, leaderelection.LeaderElectionConfig{
 		Lock: lock,
@@ -197,34 +287,8 @@ func (cluster *Cluster) StartCluster(c *kubevip.Config, sm *Manager, bgpServer *
 				}
 
 			},
-			OnStoppedLeading: func() {
-				// we can do cleanup here
-				log.Info("This node is becoming a follower within the cluster")
-
-				// Stop the dns context
-				cancelDNS()
-				// Stop the Arp context if it is running
-				cancelArp()
-
-				// Stop the BGP server
-				if bgpServer != nil {
-					err = bgpServer.Close()
-					if err != nil {
-						log.Warnf("%v", err)
-					}
-				}
-
-				err = cluster.Network.DeleteIP()
-				if err != nil {
-					log.Warnf("%v", err)
-				}
-
-				log.Fatal("lost leadership, restarting kube-vip")
-			},
-			OnNewLeader: func(identity string) {
-				// we're notified when new leader elected
-				log.Infof("Node [%s] is assuming leadership of the cluster", identity)
-			},
+			OnStoppedLeading: loseElectionCallBack,
+			OnNewLeader:      newLeaderCallBack,
 		},
 	})
 

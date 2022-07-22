@@ -5,7 +5,7 @@ TARGET := kube-vip
 .DEFAULT_GOAL: $(TARGET)
 
 # These will be provided to the target
-VERSION := v0.4.0
+VERSION := v0.4.0-20220722
 BUILD := `git rev-parse HEAD`
 
 # Operating System Default (LINUX)
@@ -14,7 +14,7 @@ TARGETOS=linux
 # Use linker flags to provide version/build settings to the target
 LDFLAGS=-ldflags "-s -w -X=main.Version=$(VERSION) -X=main.Build=$(BUILD) -extldflags -static"
 DOCKERTAG ?= $(VERSION)
-REPOSITORY = plndr
+REPOSITORY = gcr.io/spectro-dev-public/release/kube-vip
 
 .PHONY: all build clean install uninstall fmt simplify check run e2e-tests
 
