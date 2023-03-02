@@ -16,6 +16,14 @@ LDFLAGS=-ldflags "-s -w -X=main.Version=$(VERSION) -X=main.Build=$(BUILD) -extld
 DOCKERTAG ?= $(VERSION)
 REPOSITORY = plndr
 
+IMAGE_NAME := kube-vip
+IMG_URL ?= gcr.io/spectro-dev-public/release/
+IMG_TAG ?= spectro-v0.4.0-v1beta1-20230302.0905
+IMG ?= ${IMG_URL}/${IMAGE_NAME}:${IMG_TAG}
+
+RELEASE_REGISTRY := gcr.io/spectro-images-public/release/kube-vip
+RELEASE_CONTROLLER_IMG := $(RELEASE_REGISTRY)/$(IMAGE_NAME)
+
 .PHONY: all build clean install uninstall fmt simplify check run e2e-tests
 
 all: check install
@@ -55,7 +63,12 @@ dockerx86Dev:
 
 dockerx86:
 	@-rm ./kube-vip
-	@docker buildx build  --platform linux/amd64 --push -t $(REPOSITORY)/$(TARGET):$(DOCKERTAG) .
+	@docker buildx build --platform linux/amd64 --push -t ${IMG} .
+	@echo New single x86 Architecture Docker image created
+
+release-dockerx86:
+	@-rm ./kube-vip
+	@docker buildx build --platform linux/amd64 --push -t ${RELEASE_CONTROLLER_IMG} .
 	@echo New single x86 Architecture Docker image created
 
 docker:
