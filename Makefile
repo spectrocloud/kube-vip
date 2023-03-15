@@ -17,8 +17,8 @@ DOCKERTAG ?= $(VERSION)
 REPOSITORY = plndr
 
 IMAGE_NAME := kube-vip
-IMG_URL ?= gcr.io/spectro-dev-public/release/
-IMG_TAG ?= spectro-v0.4.0-v1beta1-20230302.0905
+IMG_URL ?= IMG_URL ?= gcr.io/spectro-dev-public/release/
+IMG_TAG ?= spectro-v0.4.0-v1beta1-20230315.1154
 IMG ?= ${IMG_URL}/${IMAGE_NAME}:${IMG_TAG}
 
 RELEASE_REGISTRY := gcr.io/spectro-images-public/release/kube-vip
