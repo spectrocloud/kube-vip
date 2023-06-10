@@ -126,6 +126,8 @@ func (c *DHCPClient) Start() {
 	c.initRebootFlag = false
 	c.lease = lease
 
+	log.Info("DHCP lease: %v", lease)
+
 	// Set up two ticker to renew/rebind regularly
 	t1Timeout := c.lease.ACK.IPAddressLeaseTime(defaultDHCPRenew) / 2
 	t2Timeout := (c.lease.ACK.IPAddressLeaseTime(defaultDHCPRenew) / 8) * 7
@@ -265,7 +267,7 @@ func (c *DHCPClient) request(rebind bool) (*nclient4.Lease, error) {
 }
 
 func (c *DHCPClient) release() error {
-	dhclient, err := nclient4.New(c.iface.Name)
+	dhclient, err := nclient4.New(c.iface.Name, nclient4.WithUnicast(&net.UDPAddr{IP: c.lease.ACK.YourIPAddr, Port: nclient4.ClientPort}))
 	if err != nil {
 		return fmt.Errorf("create release client failed, error: %w, iface: %s, server ip: %v", err, c.iface.Name, c.lease.ACK.ServerIPAddr)
 	}
