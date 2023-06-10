@@ -50,50 +50,59 @@ func (c *DHCPClient) Stop() {
 }
 
 // Start state-transition process of dhcp client
-//  --------                               -------
+//
+//	--------                               -------
+//
 // |        | +-------------------------->|       |<-------------------+
 // | INIT-  | |     +-------------------->| INIT  |                    |
 // | REBOOT |DHCPNAK/         +---------->|       |<---+               |
 // |        |Restart|         |            -------     |               |
-//  --------  |  DHCPNAK/     |               |                        |
-//     |      Discard offer   |      -/Send DHCPDISCOVER               |
+//
+//	--------  |  DHCPNAK/     |               |                        |
+//	   |      Discard offer   |      -/Send DHCPDISCOVER               |
+//
 // -/Send DHCPREQUEST         |               |                        |
-//     |      |     |      DHCPACK            v        |               |
-//  -----------     |   (not accept.)/   -----------   |               |
+//
+//	   |      |     |      DHCPACK            v        |               |
+//	-----------     |   (not accept.)/   -----------   |               |
+//
 // |           |    |  Send DHCPDECLINE |           |                  |
 // | REBOOTING |    |         |         | SELECTING |<----+            |
 // |           |    |        /          |           |     |DHCPOFFER/  |
-//  -----------     |       /            -----------   |  |Collect     |
-//     |            |      /                  |   |       |  replies   |
+//
+//	-----------     |       /            -----------   |  |Collect     |
+//	   |            |      /                  |   |       |  replies   |
+//
 // DHCPACK/         |     /  +----------------+   +-------+            |
 // Record lease, set|    |   v   Select offer/                         |
 // timers T1, T2   ------------  send DHCPREQUEST      |               |
-//     |   +----->|            |             DHCPNAK, Lease expired/   |
-//     |   |      | REQUESTING |                  Halt network         |
-//     DHCPOFFER/ |            |                       |               |
-//     Discard     ------------                        |               |
-//     |   |        |        |                   -----------           |
-//     |   +--------+     DHCPACK/              |           |          |
-//     |              Record lease, set    -----| REBINDING |          |
-//     |                timers T1, T2     /     |           |          |
-//     |                     |        DHCPACK/   -----------           |
-//     |                     v     Record lease, set   ^               |
-//     +----------------> -------      /timers T1,T2   |               |
-//                +----->|       |<---+                |               |
-//                |      | BOUND |<---+                |               |
-//   DHCPOFFER, DHCPACK, |       |    |            T2 expires/   DHCPNAK/
-//    DHCPNAK/Discard     -------     |             Broadcast  Halt network
-//                |       | |         |            DHCPREQUEST         |
-//                +-------+ |        DHCPACK/          |               |
-//                     T1 expires/   Record lease, set |               |
-//                  Send DHCPREQUEST timers T1, T2     |               |
-//                  to leasing server |                |               |
-//                          |   ----------             |               |
-//                          |  |          |------------+               |
-//                          +->| RENEWING |                            |
-//                             |          |----------------------------+
-//                              ----------
-//           Figure: State-transition diagram for DHCP clients
+//
+//	  |   +----->|            |             DHCPNAK, Lease expired/   |
+//	  |   |      | REQUESTING |                  Halt network         |
+//	  DHCPOFFER/ |            |                       |               |
+//	  Discard     ------------                        |               |
+//	  |   |        |        |                   -----------           |
+//	  |   +--------+     DHCPACK/              |           |          |
+//	  |              Record lease, set    -----| REBINDING |          |
+//	  |                timers T1, T2     /     |           |          |
+//	  |                     |        DHCPACK/   -----------           |
+//	  |                     v     Record lease, set   ^               |
+//	  +----------------> -------      /timers T1,T2   |               |
+//	             +----->|       |<---+                |               |
+//	             |      | BOUND |<---+                |               |
+//	DHCPOFFER, DHCPACK, |       |    |            T2 expires/   DHCPNAK/
+//	 DHCPNAK/Discard     -------     |             Broadcast  Halt network
+//	             |       | |         |            DHCPREQUEST         |
+//	             +-------+ |        DHCPACK/          |               |
+//	                  T1 expires/   Record lease, set |               |
+//	               Send DHCPREQUEST timers T1, T2     |               |
+//	               to leasing server |                |               |
+//	                       |   ----------             |               |
+//	                       |  |          |------------+               |
+//	                       +->| RENEWING |                            |
+//	                          |          |----------------------------+
+//	                           ----------
+//	        Figure: State-transition diagram for DHCP clients
 func (c *DHCPClient) Start() {
 	backoff := backoff.Backoff{
 		Factor: 2,
@@ -123,6 +132,8 @@ func (c *DHCPClient) Start() {
 		c.initRebootFlag = false
 		c.lease = lease
 		c.onBound(lease)
+
+		log.Info("DHCP lease: %v", lease)
 
 		// Set up two ticker to renew/rebind regularly
 		t1Timeout := c.lease.ACK.IPAddressLeaseTime(0) / 2
@@ -187,7 +198,7 @@ func (c *DHCPClient) request() (*nclient4.Lease, error) {
 }
 
 func (c *DHCPClient) release() error {
-	unicast, err := nclient4.New(c.iface.Name, nclient4.WithUnicast(&net.UDPAddr{Port: nclient4.ClientPort}),
+	unicast, err := nclient4.New(c.iface.Name, nclient4.WithUnicast(&net.UDPAddr{IP: c.lease.ACK.YourIPAddr, Port: nclient4.ClientPort}),
 		nclient4.WithServerAddr(&net.UDPAddr{IP: c.lease.ACK.ServerIPAddr, Port: nclient4.ServerPort}))
 	if err != nil {
 		return fmt.Errorf("create unicast client failed, error: %w, server ip: %v", err, c.lease.ACK.ServerIPAddr)
@@ -198,14 +209,14 @@ func (c *DHCPClient) release() error {
 	return unicast.Release(c.lease)
 }
 
-//   --------------------------------------------------------
-//   |              |INIT-REBOOT  | RENEWING     |REBINDING |
-//   --------------------------------------------------------
-//   |broad/unicast |broadcast    | unicast      |broadcast |
-//   |server-ip     |MUST NOT     | MUST NOT     |MUST NOT  |
-//   |requested-ip  |MUST         | MUST NOT     |MUST NOT  |
-//   |ciaddr        |zero         | IP address   |IP address|
-//   --------------------------------------------------------
+// --------------------------------------------------------
+// |              |INIT-REBOOT  | RENEWING     |REBINDING |
+// --------------------------------------------------------
+// |broad/unicast |broadcast    | unicast      |broadcast |
+// |server-ip     |MUST NOT     | MUST NOT     |MUST NOT  |
+// |requested-ip  |MUST         | MUST NOT     |MUST NOT  |
+// |ciaddr        |zero         | IP address   |IP address|
+// --------------------------------------------------------
 func (c *DHCPClient) initReboot() (*nclient4.Lease, error) {
 	broadcast, err := nclient4.New(c.iface.Name)
 	if err != nil {
@@ -224,7 +235,7 @@ func (c *DHCPClient) initReboot() (*nclient4.Lease, error) {
 }
 
 func (c *DHCPClient) renew() (*nclient4.Lease, error) {
-	unicast, err := nclient4.New(c.iface.Name, nclient4.WithUnicast(&net.UDPAddr{Port: nclient4.ClientPort}),
+	unicast, err := nclient4.New(c.iface.Name, nclient4.WithUnicast(&net.UDPAddr{IP: c.lease.ACK.YourIPAddr, Port: nclient4.ClientPort}),
 		nclient4.WithServerAddr(&net.UDPAddr{IP: c.lease.ACK.ServerIPAddr, Port: nclient4.ServerPort}))
 	if err != nil {
 		return nil, fmt.Errorf("create unicast client failed, error: %w, server ip: %v", err, c.lease.ACK.ServerIPAddr)
