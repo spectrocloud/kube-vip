@@ -1,6 +1,10 @@
 # syntax=docker/dockerfile:experimental
 
 FROM golang:1.21.4-alpine3.18 as dev
+# FIPS
+ARG CRYPTO_LIB
+ENV GOEXPERIMENT=${CRYPTO_LIB:+boringcrypto}
+
 RUN apk add --no-cache git ca-certificates make
 RUN adduser -D appuser
 COPY . /src/
