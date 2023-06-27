@@ -23,6 +23,9 @@ TARGETOS=linux
 
 # Use linker flags to provide version/build settings to the target
 LDFLAGS=-ldflags "-s -w -X=main.Version=$(VERSION) -X=main.Build=$(BUILD) -extldflags -static"
+ifeq ($(FIPS_ENABLE),yes)
+  LDFLAGS=-ldflags "-s -w -X=main.Version=$(VERSION) -X=main.Build=$(BUILD) -linkmode=external  -extldflags -static"
+endif
 DOCKERTAG ?= $(VERSION)
 REPOSITORY = plndr
 
@@ -83,7 +86,7 @@ release-dockerx86:
 
 docker:
 	@-rm ./kube-vip
-	@docker buildx build --build-arg CRYPTO_LIB=${FIPS_ENABLE}  --platform linux/amd64 --push -t ${IMG} .
+	@docker buildx build --build-arg CRYPTO_LIB=${FIPS_ENABLE} --push  --platform linux/amd64 -t ${IMG} .
 	@echo New Multi Architecture Docker image created
 
 ## Local (docker load of images)
