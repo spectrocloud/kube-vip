@@ -1,9 +1,10 @@
 # syntax=docker/dockerfile:experimental
 
-FROM golang:1.21.4-alpine3.18 as dev
+ARG BUILDER_GOLANG_VERSION
+# First stage: build the executable.
+FROM --platform=$TARGETPLATFORM gcr.io/spectro-images-public/golang:${BUILDER_GOLANG_VERSION}-alpine as dev
 # FIPS
 ARG CRYPTO_LIB
-ENV GOEXPERIMENT=${CRYPTO_LIB:+boringcrypto}
 
 RUN apk add --no-cache git ca-certificates make  gcc g++
 RUN adduser -D appuser
@@ -15,10 +16,14 @@ RUN --mount=type=cache,sharing=locked,id=gomod,target=/go/pkg/mod/cache \
     --mount=type=cache,sharing=locked,id=goroot,target=/root/.cache/go-build \
     if [ ${CRYPTO_LIB} ]; \
     then \
-    CGO_ENABLED=1 FIPS_ENABLE=yes GOOS=linux make build ;\
+    go-build-fips.sh -a -o kube-vip . ;\
     else \
-    CGO_ENABLED=0 GOOS=linux make build ;\
+    go-build-static.sh -a -o kube-vip . ;\
     fi
+
+RUN if [ "${CRYPTO_LIB}" ]; then assert-static.sh kube-vip; fi
+RUN if [ "${CRYPTO_LIB}" ]; then assert-fips.sh kube-vip; fi
+RUN scan-govulncheck.sh kube-vip
 
 FROM scratch
 # Add Certificates into the image, for anything that does API calls
