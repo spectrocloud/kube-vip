@@ -7,6 +7,12 @@ on:
         description: 'Version to Build'
         required: true
         default: '0.0.0'
+      rel_type:
+        type: choice
+        description: Type of release
+        options:
+          - release
+          - rc
 jobs:
   builder:
     # edge-runner machine group is a bunch of machines in US Datacenter
@@ -15,6 +21,8 @@ jobs:
     # Ensure that the credentials are provided as encrypted secrets
     env:
       SPECTRO_VERSION: ${{ github.event.inputs.release_version }}
+      LEGACY_REGISTRY: gcr.io/spectro-images-public/release/kube-vip
+      FIPS_REGISTRY: gcr.io/spectro-images-public/release-fips/kube-vip
     steps:
       -
         uses: mukunku/tag-exists-action@v1.2.0
@@ -26,6 +34,11 @@ jobs:
         run: |
           echo "Tag already exists for spectro-v${{ github.event.inputs.release_version }}..."
           exit 1
+      -
+        if: ${{ github.event.inputs.rel_type == 'rc' }}
+        run: |
+          echo "LEGACY_REGISTRY=gcr.io/spectro-dev-public/release/kube-vip" >> $GITHUB_ENV
+          echo "FIPS_REGISTRY=gcr.io/spectro-dev-public/release-fips/kube-vip" >> $GITHUB_ENV
       -
         uses: actions/checkout@v3
       -
@@ -41,18 +54,19 @@ jobs:
       -
         name: Build Image
         env:
-          REGISTRY: gcr.io/spectro-images-public/release/kube-vip
+          REGISTRY: ${{ env.LEGACY_REGISTRY }}
         run: |
           make docker
       -
         name: Build Image - FIPS Mode
         env:
           FIPS_ENABLE: yes
-          REGISTRY: gcr.io/spectro-images-public/release-fips/kube-vip
+          REGISTRY: ${{ env.FIPS_REGISTRY }}
         run: |
           make docker
       -
         name: Create Release
+        if: ${{ github.event.inputs.rel_type == 'release' }}
         id: create_release
         uses: actions/create-release@v1
         env:
