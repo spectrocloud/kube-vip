@@ -7,6 +7,9 @@ TARGET := kube-vip
 # Fips Flags
 FIPS_ENABLE ?= ""
 
+BUILDER_GOLANG_VERSION ?= 1.21
+BUILD_ARGS = --build-arg CRYPTO_LIB=${FIPS_ENABLE} --build-arg BUILDER_GOLANG_VERSION=${BUILDER_GOLANG_VERSION}
+
 RELEASE_LOC := release
 ifeq ($(FIPS_ENABLE),yes)
   CGO_ENABLED := 1
@@ -86,7 +89,7 @@ release-dockerx86:
 
 docker:
 	@-rm ./kube-vip
-	@docker buildx build --build-arg CRYPTO_LIB=${FIPS_ENABLE} --push  --platform linux/amd64 -t ${IMG} .
+	@docker buildx build --build-arg CRYPTO_LIB=${FIPS_ENABLE} ${BUILD_ARGS} --push  --platform linux/amd64 -t ${IMG} .
 	@echo New Multi Architecture Docker image created
 
 ## Local (docker load of images)
