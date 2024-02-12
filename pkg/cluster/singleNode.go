@@ -1,18 +1,21 @@
 package cluster
 
 import (
+	"context"
+
+	"github.com/packethost/packngo"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/plunder-app/kube-vip/pkg/kubevip"
-	"github.com/plunder-app/kube-vip/pkg/loadbalancer"
-	"github.com/plunder-app/kube-vip/pkg/vip"
+	"github.com/kube-vip/kube-vip/pkg/bgp"
+	"github.com/kube-vip/kube-vip/pkg/kubevip"
+	"github.com/kube-vip/kube-vip/pkg/vip"
 )
 
 // StartSingleNode will start a single node cluster
 func (cluster *Cluster) StartSingleNode(c *kubevip.Config, disableVIP bool) error {
 	// Start kube-vip as a single node server
 
-	// TODO - Split all this code out as a seperate function
+	// TODO - Split all this code out as a separate function
 	log.Infoln("Starting kube-vip as a single node cluster")
 
 	log.Info("This node is assuming leadership of the cluster")
@@ -20,84 +23,57 @@ func (cluster *Cluster) StartSingleNode(c *kubevip.Config, disableVIP bool) erro
 	cluster.stop = make(chan bool, 1)
 	cluster.completed = make(chan bool, 1)
 
-	// Managers for Vip load balancers and none-vip loadbalancers
-	nonVipLB := loadbalancer.LBManager{}
-	VipLB := loadbalancer.LBManager{}
-
-	// Iterate through all Configurations
-	for x := range c.LoadBalancers {
-		// If the load balancer doesn't bind to the VIP
-		if c.LoadBalancers[x].BindToVip == false {
-			err := nonVipLB.Add("", &c.LoadBalancers[x])
+	for i := range cluster.Network {
+		if !disableVIP {
+			err := cluster.Network[i].DeleteIP()
 			if err != nil {
-				log.Warnf("Error creating loadbalancer [%s] type [%s] -> error [%s]", c.LoadBalancers[x].Name, c.LoadBalancers[x].Type, err)
+				log.Warnf("Attempted to clean existing VIP => %v", err)
+			}
+
+			err = cluster.Network[i].AddIP()
+			if err != nil {
+				log.Warnf("%v", err)
 			}
 
 		}
-	}
 
-	if !disableVIP {
-		err := cluster.Network.DeleteIP()
-		if err != nil {
-			log.Warnf("Attempted to clean existing VIP => %v", err)
-		}
-
-		err = cluster.Network.AddIP()
-		if err != nil {
-			log.Warnf("%v", err)
-		}
-
-		// Once we have the VIP running, start the load balancer(s) that bind to the VIP
-		for x := range c.LoadBalancers {
-
-			if c.LoadBalancers[x].BindToVip == true {
-				err = VipLB.Add(cluster.Network.IP(), &c.LoadBalancers[x])
-				if err != nil {
-					log.Warnf("Error creating loadbalancer [%s] type [%s] -> error [%s]", c.LoadBalancers[x].Name, c.LoadBalancers[x].Type, err)
-				}
+		if c.EnableARP {
+			// Gratuitous ARP, will broadcast to new MAC <-> IP
+			err := vip.ARPSendGratuitous(cluster.Network[i].IP(), c.Interface)
+			if err != nil {
+				log.Warnf("%v", err)
 			}
-		}
-	}
-
-	if c.GratuitousARP == true {
-		// Gratuitous ARP, will broadcast to new MAC <-> IP
-		err := vip.ARPSendGratuitous(cluster.Network.IP(), c.Interface)
-		if err != nil {
-			log.Warnf("%v", err)
 		}
 	}
 
 	go func() {
-		for {
-			select {
-			case <-cluster.stop:
-				log.Info("[LOADBALANCER] Stopping load balancers")
+		<-cluster.stop
 
-				// Stop all load balancers associated with the VIP
-				err := VipLB.StopAll()
+		if !disableVIP {
+			for i := range cluster.Network {
+				log.Infof("[VIP] Releasing the Virtual IP [%s]", cluster.Network[i].IP())
+				err := cluster.Network[i].DeleteIP()
 				if err != nil {
 					log.Warnf("%v", err)
 				}
-
-				// Stop all load balancers associated with the Host
-				err = nonVipLB.StopAll()
-				if err != nil {
-					log.Warnf("%v", err)
-				}
-
-				if !disableVIP {
-
-					log.Info("[VIP] Releasing the Virtual IP")
-					err = cluster.Network.DeleteIP()
-					if err != nil {
-						log.Warnf("%v", err)
-					}
-				}
-				close(cluster.completed)
-				return
 			}
 		}
+		close(cluster.completed)
 	}()
 	log.Infoln("Started Load Balancer and Virtual IP")
 	return nil
+}
+
+func (cluster *Cluster) StartVipService(c *kubevip.Config, sm *Manager, bgp *bgp.Server, packetClient *packngo.Client) error {
+	// use a Go context so we can tell the arp loop code when we
+	// want to step down
+	ctxArp, cancelArp := context.WithCancel(context.Background())
+	defer cancelArp()
+
+	// use a Go context so we can tell the dns loop code when we
+	// want to step down
+	ctxDNS, cancelDNS := context.WithCancel(context.Background())
+	defer cancelDNS()
+
+	return cluster.vipService(ctxArp, ctxDNS, c, sm, bgp, packetClient)
 }

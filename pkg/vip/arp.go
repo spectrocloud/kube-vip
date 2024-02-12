@@ -1,6 +1,7 @@
+//go:build linux
 // +build linux
 
-// These syscalls are only supported on Linux, so this uses a build directive during compilation. Other OS's will use the arp_unsupported.go and recieve an error
+// These syscalls are only supported on Linux, so this uses a build directive during compilation. Other OS's will use the arp_unsupported.go and receive an error
 
 package vip
 
@@ -11,8 +12,6 @@ import (
 	"net"
 	"syscall"
 	"unsafe"
-
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -136,7 +135,7 @@ func sendARP(iface *net.Interface, m *arpMessage) error {
 		Halen:    m.hardwareAddressLength,
 	}
 	target := ethernetBroadcast
-	for i := 0; i < len(target); i++ {
+	for i := 0; i < len(target); i++ { //nolint
 		ll.Addr[i] = target[i]
 	}
 
@@ -167,7 +166,7 @@ func ARPSendGratuitous(address, ifaceName string) error {
 		return fmt.Errorf("failed to parse address %s", ip)
 	}
 
-	log.Infof("Broadcasting ARP update for %s (%s) via %s", address, iface.HardwareAddr, iface.Name)
+	// This is a debug message, enable debugging to ensure that the gratuitous arp is repeating
 	m, err := gratuitousARP(ip, iface.HardwareAddr)
 	if err != nil {
 		return err
