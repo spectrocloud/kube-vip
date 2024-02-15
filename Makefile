@@ -35,7 +35,7 @@ REPOSITORY ?= plndr
 
 IMAGE_NAME := kube-vip
 REGISTRY ?= gcr.io/spectro-dev-public/$(USER)/${RELEASE_LOC}
-IMG_TAG ?= v0.4.0-spectro-${SPECTRO_VERSION}
+IMG_TAG ?= v0.6.4-spectro-${SPECTRO_VERSION}
 IMG ?= ${REGISTRY}/${IMAGE_NAME}:${IMG_TAG}
 
 RELEASE_REGISTRY := gcr.io/spectro-images-public/release/kube-vip
