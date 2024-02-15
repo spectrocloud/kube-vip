@@ -126,7 +126,7 @@ func (c *DHCPClient) Start() {
 	c.initRebootFlag = false
 	c.lease = lease
 
-	log.Info("DHCP lease: %v", lease)
+	log.Info("DHCP lease: ", lease)
 
 	// Set up two ticker to renew/rebind regularly
 	t1Timeout := c.lease.ACK.IPAddressLeaseTime(defaultDHCPRenew) / 2
