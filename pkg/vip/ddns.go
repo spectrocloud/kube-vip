@@ -44,6 +44,10 @@ func (ddns *ddnsManager) Start() (string, error) {
 
 	go client.Start()
 
+	client.WithHostName(ddns.network.DDNSHostName())
+
+	go client.Start()
+
 	log.Info("waiting for ip from dhcp")
 	ip, timeout := "", time.After(1*time.Minute)
 

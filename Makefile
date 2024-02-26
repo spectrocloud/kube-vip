@@ -16,9 +16,20 @@ ifeq ($(FIPS_ENABLE),yes)
   RELEASE_LOC := release-fips
 endif
 
+# Fips Flags
+FIPS_ENABLE ?= ""
+
+BUILDER_GOLANG_VERSION ?= 1.21
+BUILD_ARGS = --build-arg CRYPTO_LIB=${FIPS_ENABLE} --build-arg BUILDER_GOLANG_VERSION=${BUILDER_GOLANG_VERSION}
+
+RELEASE_LOC := release
+ifeq ($(FIPS_ENABLE),yes)
+  CGO_ENABLED := 1
+  RELEASE_LOC := release-fips
+endif
+
 # These will be provided to the target
 VERSION := v0.6.4
-
 SPECTRO_VERSION ?= 4.0.0-dev
 BUILD := `git rev-parse HEAD`
 
@@ -36,6 +47,14 @@ REPOSITORY ?= plndr
 IMAGE_NAME := kube-vip
 REGISTRY ?= gcr.io/spectro-dev-public/$(USER)/${RELEASE_LOC}
 IMG_TAG ?= v0.6.4-spectro-${SPECTRO_VERSION}
+IMG ?= ${REGISTRY}/${IMAGE_NAME}:${IMG_TAG}
+
+RELEASE_REGISTRY := gcr.io/spectro-images-public/release/kube-vip
+RELEASE_CONTROLLER_IMG := $(RELEASE_REGISTRY)/$(IMAGE_NAME)
+
+IMAGE_NAME := kube-vip
+REGISTRY ?= gcr.io/spectro-dev-public/$(USER)/${RELEASE_LOC}
+IMG_TAG ?= v0.4.0-spectro-${SPECTRO_VERSION}
 IMG ?= ${REGISTRY}/${IMAGE_NAME}:${IMG_TAG}
 
 RELEASE_REGISTRY := gcr.io/spectro-images-public/release/kube-vip
@@ -85,7 +104,12 @@ dockerx86Iptables:
 
 dockerx86:
 	@-rm ./kube-vip
-	@docker buildx build  --platform linux/amd64 --push -t $(REPOSITORY)/$(TARGET):$(DOCKERTAG) .
+	@docker buildx build --platform linux/amd64 --push -t ${IMG} .
+	@echo New single x86 Architecture Docker image created
+
+release-dockerx86:
+	@-rm ./kube-vip
+	@docker buildx build --platform linux/amd64 --push -t ${RELEASE_CONTROLLER_IMG} .
 	@echo New single x86 Architecture Docker image created
 
 docker:
