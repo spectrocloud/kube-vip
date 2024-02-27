@@ -12,8 +12,6 @@ import (
 	"net"
 	"syscall"
 	"unsafe"
-
-	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -137,7 +135,7 @@ func sendARP(iface *net.Interface, m *arpMessage) error {
 		Halen:    m.hardwareAddressLength,
 	}
 	target := ethernetBroadcast
-	for i := 0; i < len(target); i++ {
+	for i := 0; i < len(target); i++ { //nolint
 		ll.Addr[i] = target[i]
 	}
 
@@ -168,7 +166,7 @@ func ARPSendGratuitous(address, ifaceName string) error {
 		return fmt.Errorf("failed to parse address %s", ip)
 	}
 
-	log.Infof("Broadcasting ARP update for %s (%s) via %s", address, iface.HardwareAddr, iface.Name)
+	// This is a debug message, enable debugging to ensure that the gratuitous arp is repeating
 	m, err := gratuitousARP(ip, iface.HardwareAddr)
 	if err != nil {
 		return err

@@ -2,27 +2,30 @@ package manager
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"syscall"
 
 	"github.com/kube-vip/kube-vip/pkg/bgp"
 	"github.com/kube-vip/kube-vip/pkg/cluster"
-	"github.com/kube-vip/kube-vip/pkg/packet"
+	"github.com/kube-vip/kube-vip/pkg/equinixmetal"
+	api "github.com/osrg/gobgp/v3/api"
 	"github.com/packethost/packngo"
+	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 )
 
 // Start will begin the Manager, which will start services and watch the configmap
 func (sm *Manager) startBGP() error {
 	var cpCluster *cluster.Cluster
-	//var ns string
+	// var ns string
 	var err error
 
-	// If Packet is enabled then we can begin our preparation work
+	// If Equinix Metal is enabled then we can begin our preparation work
 	var packetClient *packngo.Client
 	if sm.config.EnableMetal {
 		if sm.config.ProviderConfig != "" {
-			key, project, err := packet.GetPacketConfig(sm.config.ProviderConfig)
+			key, project, err := equinixmetal.GetPacketConfig(sm.config.ProviderConfig)
 			if err != nil {
 				log.Error(err)
 			} else {
@@ -37,10 +40,10 @@ func (sm *Manager) startBGP() error {
 			log.Error(err)
 		}
 
-		// We're using Packet with BGP, popuplate the Peer information from the API
+		// We're using Equinix Metal with BGP, populate the Peer information from the API
 		if sm.config.EnableBGP {
-			log.Infoln("Looking up the BGP configuration from packet")
-			err = packet.BGPLookup(packetClient, sm.config)
+			log.Infoln("Looking up the BGP configuration from Equinix Metal")
+			err = equinixmetal.BGPLookup(packetClient, sm.config)
 			if err != nil {
 				log.Error(err)
 			}
@@ -48,10 +51,27 @@ func (sm *Manager) startBGP() error {
 	}
 
 	log.Info("Starting the BGP server to advertise VIP routes to BGP peers")
-	sm.bgpServer, err = bgp.NewBGPServer(&sm.config.BGPConfig)
+	sm.bgpServer, err = bgp.NewBGPServer(&sm.config.BGPConfig, func(p *api.WatchEventResponse_PeerEvent) {
+		ipaddr := p.GetPeer().GetState().GetNeighborAddress()
+		port := uint64(179)
+		peerDescription := fmt.Sprintf("%s:%d", ipaddr, port)
+
+		for stateName, stateValue := range api.PeerState_SessionState_value {
+			metricValue := 0.0
+			if stateValue == int32(p.GetPeer().GetState().GetSessionState().Number()) {
+				metricValue = 1
+			}
+
+			sm.bgpSessionInfoGauge.With(prometheus.Labels{
+				"state": stateName,
+				"peer":  peerDescription,
+			}).Set(metricValue)
+		}
+	})
 	if err != nil {
 		return err
 	}
+
 	// use a Go context so we can tell the leaderelection code when we
 	// want to step down
 	ctx, cancel := context.WithCancel(context.Background())
@@ -68,7 +88,7 @@ func (sm *Manager) startBGP() error {
 	go func() {
 		<-sm.signalChan
 		log.Info("Received termination, signaling shutdown")
-		if sm.config.EnableControlPane {
+		if sm.config.EnableControlPlane {
 			if cpCluster != nil {
 				cpCluster.Stop()
 			}
@@ -77,22 +97,25 @@ func (sm *Manager) startBGP() error {
 		cancel()
 	}()
 
-	if sm.config.EnableControlPane {
-
+	if sm.config.EnableControlPlane {
 		cpCluster, err = cluster.InitCluster(sm.config, false)
 		if err != nil {
 			return err
 		}
 
-		clusterManager := &cluster.Manager{
-			KubernetesClient: sm.clientSet,
-			SignalChan:       sm.signalChan,
+		clusterManager, err := initClusterManager(sm)
+		if err != nil {
+			return err
 		}
 
 		go func() {
-			err = cpCluster.StartVipService(sm.config, clusterManager, sm.bgpServer, packetClient)
+			if sm.config.EnableLeaderElection {
+				err = cpCluster.StartCluster(sm.config, clusterManager, sm.bgpServer)
+			} else {
+				err = cpCluster.StartVipService(sm.config, clusterManager, sm.bgpServer, packetClient)
+			}
 			if err != nil {
-				log.Errorf("Control Pane Error [%v]", err)
+				log.Errorf("Control Plane Error [%v]", err)
 				// Trigger the shutdown of this manager instance
 				sm.signalChan <- syscall.SIGINT
 			}
@@ -107,7 +130,7 @@ func (sm *Manager) startBGP() error {
 		}
 	}
 
-	err = sm.servicesWatcher(ctx)
+	err = sm.servicesWatcher(ctx, sm.syncServices)
 	if err != nil {
 		return err
 	}

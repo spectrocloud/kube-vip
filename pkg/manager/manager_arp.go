@@ -8,11 +8,13 @@ import (
 	"time"
 
 	"github.com/kamhlos/upnp"
-	"github.com/kube-vip/kube-vip/pkg/cluster"
 	log "github.com/sirupsen/logrus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
+
+	"github.com/kube-vip/kube-vip/pkg/cluster"
+	"github.com/kube-vip/kube-vip/pkg/vip"
 )
 
 // Start will begin the Manager, which will start services and watch the configmap
@@ -29,29 +31,31 @@ func (sm *Manager) startARP() error {
 	// Shutdown function that will wait on this signal, unless we call it ourselves
 	go func() {
 		<-sm.signalChan
-		log.Info("Received termination, signaling shutdown")
-		if sm.config.EnableControlPane {
+		log.Info("Received kube-vip termination, signaling shutdown")
+		if sm.config.EnableControlPlane {
 			cpCluster.Stop()
 		}
+		// Close all go routines
+		close(sm.shutdownChan)
 		// Cancel the context, which will in turn cancel the leadership
 		cancel()
 	}()
 
-	if sm.config.EnableControlPane {
+	if sm.config.EnableControlPlane {
 		cpCluster, err = cluster.InitCluster(sm.config, false)
 		if err != nil {
 			return err
 		}
 
-		clusterManager := &cluster.Manager{
-			KubernetesClient: sm.clientSet,
-			SignalChan:       sm.signalChan,
+		clusterManager, err := initClusterManager(sm)
+		if err != nil {
+			return err
 		}
 
 		go func() {
 			err := cpCluster.StartCluster(sm.config, clusterManager, nil)
 			if err != nil {
-				log.Errorf("Control Pane Error [%v]", err)
+				log.Errorf("Control Plane Error [%v]", err)
 				// Trigger the shutdown of this manager instance
 				sm.signalChan <- syscall.SIGINT
 
@@ -68,9 +72,11 @@ func (sm *Manager) startARP() error {
 
 		ns = sm.config.Namespace
 	} else {
+
 		ns, err = returnNameSpace()
 		if err != nil {
-			return err
+			log.Warnf("unable to auto-detect namespace, dropping to [%s]", sm.config.Namespace)
+			ns = sm.config.Namespace
 		}
 	}
 
@@ -94,59 +100,87 @@ func (sm *Manager) startARP() error {
 		}
 	}
 
-	log.Infof("Beginning cluster membership, namespace [%s], lock name [%s], id [%s]", ns, plunderLock, id)
-	// we use the Lease lock type since edits to Leases are less common
-	// and fewer objects in the cluster watch "all Leases".
-	lock := &resourcelock.LeaseLock{
-		LeaseMeta: metav1.ObjectMeta{
-			Name:      plunderLock,
-			Namespace: ns,
-		},
-		Client: sm.clientSet.CoordinationV1(),
-		LockConfig: resourcelock.ResourceLockConfig{
-			Identity: id,
-		},
+	// This will tidy any dangling kube-vip iptables rules
+	if os.Getenv("EGRESS_CLEAN") != "" {
+		i, err := vip.CreateIptablesClient(sm.config.EgressWithNftables, sm.config.ServiceNamespace)
+		if err != nil {
+			log.Warnf("(egress) Unable to clean any dangling egress rules [%v]", err)
+			log.Warn("(egress) Can be ignored in non iptables release of kube-vip")
+		} else {
+			log.Info("(egress) Cleaning any dangling kube-vip egress rules")
+			cleanErr := i.CleanIPtables()
+			if cleanErr != nil {
+				log.Errorf("Error cleaning rules [%v]", cleanErr)
+			}
+		}
 	}
 
-	// start the leader election code loop
-	leaderelection.RunOrDie(ctx, leaderelection.LeaderElectionConfig{
-		Lock: lock,
-		// IMPORTANT: you MUST ensure that any code you have that
-		// is protected by the lease must terminate **before**
-		// you call cancel. Otherwise, you could have a background
-		// loop still running and another process could
-		// get elected before your background loop finished, violating
-		// the stated goal of the lease.
-		ReleaseOnCancel: true,
-		LeaseDuration:   10 * time.Second,
-		RenewDeadline:   5 * time.Second,
-		RetryPeriod:     1 * time.Second,
-		Callbacks: leaderelection.LeaderCallbacks{
-			OnStartedLeading: func(ctx context.Context) {
-				err = sm.servicesWatcher(ctx)
-				if err != nil {
-					log.Error(err)
-				}
-			},
-			OnStoppedLeading: func() {
-				// we can do cleanup here
-				log.Infof("leader lost: %s", id)
-				for x := range sm.serviceInstances {
-					sm.serviceInstances[x].cluster.Stop()
-				}
+	// Start a services watcher (all kube-vip pods will watch services), upon a new service
+	// a lock based upon that service is created that they will all leaderElection on
+	if sm.config.EnableServicesElection {
+		log.Infof("beginning watching services, leaderelection will happen for every service")
+		err = sm.startServicesWatchForLeaderElection(ctx)
+		if err != nil {
+			return err
+		}
+	} else {
 
-				log.Fatal("lost leadership, restarting kube-vip")
+		log.Infof("beginning services leadership, namespace [%s], lock name [%s], id [%s]", ns, sm.config.ServicesLeaseName, id)
+		// we use the Lease lock type since edits to Leases are less common
+		// and fewer objects in the cluster watch "all Leases".
+		lock := &resourcelock.LeaseLock{
+			LeaseMeta: metav1.ObjectMeta{
+				Name:      sm.config.ServicesLeaseName,
+				Namespace: ns,
 			},
-			OnNewLeader: func(identity string) {
-				// we're notified when new leader elected
-				if identity == id {
-					// I just got the lock
-					return
-				}
-				log.Infof("new leader elected: %s", identity)
+			Client: sm.clientSet.CoordinationV1(),
+			LockConfig: resourcelock.ResourceLockConfig{
+				Identity: id,
 			},
-		},
-	})
+		}
 
+		// start the leader election code loop
+		leaderelection.RunOrDie(ctx, leaderelection.LeaderElectionConfig{
+			Lock: lock,
+			// IMPORTANT: you MUST ensure that any code you have that
+			// is protected by the lease must terminate **before**
+			// you call cancel. Otherwise, you could have a background
+			// loop still running and another process could
+			// get elected before your background loop finished, violating
+			// the stated goal of the lease.
+			ReleaseOnCancel: true,
+			LeaseDuration:   time.Duration(sm.config.LeaseDuration) * time.Second,
+			RenewDeadline:   time.Duration(sm.config.RenewDeadline) * time.Second,
+			RetryPeriod:     time.Duration(sm.config.RetryPeriod) * time.Second,
+			Callbacks: leaderelection.LeaderCallbacks{
+				OnStartedLeading: func(ctx context.Context) {
+					err = sm.servicesWatcher(ctx, sm.syncServices)
+					if err != nil {
+						log.Error(err)
+					}
+				},
+				OnStoppedLeading: func() {
+					// we can do cleanup here
+					log.Infof("leader lost: %s", id)
+					for x := range sm.serviceInstances {
+						sm.serviceInstances[x].cluster.Stop()
+					}
+
+					log.Fatal("lost leadership, restarting kube-vip")
+				},
+				OnNewLeader: func(identity string) {
+					// we're notified when new leader elected
+					if sm.config.EnableNodeLabeling {
+						applyNodeLabel(sm.clientSet, sm.config.Address, id, identity)
+					}
+					if identity == id {
+						// I just got the lock
+						return
+					}
+					log.Infof("new leader elected: %s", identity)
+				},
+			},
+		})
+	}
 	return nil
 }

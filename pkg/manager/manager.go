@@ -2,20 +2,18 @@ package manager
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/kube-vip/kube-vip/pkg/k8s"
 
 	"github.com/kamhlos/upnp"
 	"github.com/kube-vip/kube-vip/pkg/bgp"
-	"github.com/kube-vip/kube-vip/pkg/cluster"
 	"github.com/kube-vip/kube-vip/pkg/kubevip"
-	"github.com/kube-vip/kube-vip/pkg/vip"
 	"github.com/prometheus/client_golang/prometheus"
 	log "github.com/sirupsen/logrus"
 	"k8s.io/client-go/kubernetes"
@@ -33,7 +31,7 @@ type Manager struct {
 	// service bool
 
 	// Keeps track of all running instances
-	serviceInstances []Instance
+	serviceInstances []*Instance
 
 	// Additional functionality
 	upnp *upnp.Upnp
@@ -41,36 +39,22 @@ type Manager struct {
 	//BGP Manager, this is a singleton that manages all BGP advertisements
 	bgpServer *bgp.Server
 
-	// This channel is used to signal a shutdown
+	// This channel is used to catch an OS signal and trigger a shutdown
 	signalChan chan os.Signal
+
+	// This channel is used to signal a shutdown
+	shutdownChan chan struct{}
 
 	// This is a prometheus counter used to count the number of events received
 	// from the service watcher
 	countServiceWatchEvent *prometheus.CounterVec
-}
 
-// Instance defines an instance of everything needed to manage a vip
-type Instance struct {
-	// Virtual IP / Load Balancer configuration
-	vipConfig kubevip.Config
+	// This is a prometheus gauge indicating the state of the sessions.
+	// 1 means "ESTABLISHED", 0 means "NOT ESTABLISHED"
+	bgpSessionInfoGauge *prometheus.GaugeVec
 
-	// cluster instance
-	cluster cluster.Cluster
-
-	// Service uses DHCP
-	isDHCP              bool
-	dhcpInterface       string
-	dhcpInterfaceHwaddr string
-	dhcpInterfaceIP     string
-	dhcpClient          *vip.DHCPClient
-
-	// Kubernetes service mapping
-	Vip  string
-	Port int32
-	UID  string
-	Type string
-
-	ServiceName string
+	// This mutex is to protect calls from various goroutines
+	mutex sync.Mutex
 }
 
 // New will create a new managing object
@@ -83,9 +67,11 @@ func New(configMap string, config *kubevip.Config) (*Manager, error) {
 	homeConfigPath := filepath.Join(os.Getenv("HOME"), ".kube", "config")
 
 	switch {
+	case config.LeaderElectionType == "etcd":
+		// Do nothing, we don't construct a k8s client for etcd leader election
 	case fileExists(adminConfigPath):
-		if config.EnableControlPane {
-			// If this is a control pane host it will likely have started as a static pod or won't have the
+		if config.EnableControlPlane {
+			// If this is a control plane host it will likely have started as a static pod or won't have the
 			// VIP up before trying to connect to the API server, we set the API endpoint to this machine to
 			// ensure connectivity.
 			clientset, err = k8s.NewClientset(adminConfigPath, false, fmt.Sprintf("kubernetes:%v", config.Port))
@@ -120,6 +106,12 @@ func New(configMap string, config *kubevip.Config) (*Manager, error) {
 			Name:      "all_services_events",
 			Help:      "Count all events fired by the service watcher categorised by event type",
 		}, []string{"type"}),
+		bgpSessionInfoGauge: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: "kube_vip",
+			Subsystem: "manager",
+			Name:      "bgp_session_info",
+			Help:      "Display state of session by setting metric for label value with current state to 1",
+		}, []string{"state", "peer"}),
 	}, nil
 }
 
@@ -136,9 +128,8 @@ func (sm *Manager) Start() error {
 	// Add Notification for SIGTERM (sent from Kubernetes)
 	signal.Notify(sm.signalChan, syscall.SIGTERM)
 
-	// Add Notification for SIGKILL (sent from Kubernetes)
-	//nolint
-	signal.Notify(sm.signalChan, syscall.SIGKILL)
+	// All watchers and other goroutines should have an additional goroutine that blocks on this, to shut things down
+	sm.shutdownChan = make(chan struct{})
 
 	// If BGP is enabled then we start a server instance that will broadcast VIPs
 	if sm.config.EnableBGP {
@@ -150,23 +141,31 @@ func (sm *Manager) Start() error {
 		}
 
 		log.Infoln("Starting Kube-vip Manager with the BGP engine")
-		log.Infof("Namespace [%s], Hybrid mode [%t]", sm.config.Namespace, sm.config.EnableControlPane && sm.config.EnableServices)
 		return sm.startBGP()
 	}
 
 	// If ARP is enabled then we start a LeaderElection that will use ARP to advertise VIPs
 	if sm.config.EnableARP {
 		log.Infoln("Starting Kube-vip Manager with the ARP engine")
-		log.Infof("Namespace [%s], Hybrid mode [%t]", sm.config.Namespace, sm.config.EnableControlPane && sm.config.EnableServices)
 		return sm.startARP()
 	}
 
-	log.Infoln("Prematurely exiting Load-balancer as neither Layer2 or Layer3 is enabled")
+	if sm.config.EnableWireguard {
+		log.Infoln("Starting Kube-vip Manager with the Wireguard engine")
+		return sm.startWireguard()
+	}
+
+	if sm.config.EnableRoutingTable {
+		log.Infoln("Starting Kube-vip Manager with the Routing Table engine")
+		return sm.startTableMode()
+	}
+
+	log.Errorln("prematurely exiting Load-balancer as no modes [ARP/BGP/Wireguard] are enabled")
 	return nil
 }
 
 func returnNameSpace() (string, error) {
-	if data, err := ioutil.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {
+	if data, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace"); err == nil {
 		if ns := strings.TrimSpace(string(data)); len(ns) > 0 {
 			return ns, nil
 		}

@@ -2,340 +2,25 @@ package kubevip
 
 import (
 	"fmt"
-	"os"
 	"strconv"
 
-	"github.com/ghodss/yaml"
-	"github.com/kube-vip/kube-vip/pkg/bgp"
-	"github.com/kube-vip/kube-vip/pkg/detector"
-	log "github.com/sirupsen/logrus"
 	appv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/yaml"
 )
-
-// ParseEnvironment - will popultate the configuration from environment variables
-func ParseEnvironment(c *Config) error {
-
-	// Ensure that logging is set through the environment variables
-	env := os.Getenv(vipLogLevel)
-	if env != "" {
-		logLevel, err := strconv.Atoi(env)
-		if err != nil {
-			panic("Unable to parse environment variable [vip_loglevel], should be int")
-		}
-		log.SetLevel(log.Level(logLevel))
-	}
-
-	// Find interface
-	env = os.Getenv(vipInterface)
-	if env != "" {
-		c.Interface = env
-	}
-
-	// Find (services) interface
-	env = os.Getenv(vipServicesInterface)
-	if env != "" {
-		c.ServicesInterface = env
-	}
-
-	// Find provider configuration
-	env = os.Getenv(providerConfig)
-	if env != "" {
-		c.ProviderConfig = env
-	}
-
-	// Find Kubernetes Leader Election configuration
-	env = os.Getenv(vipLeaderElection)
-	if env != "" {
-		b, err := strconv.ParseBool(env)
-		if err != nil {
-			return err
-		}
-		c.EnableLeaderElection = b
-	}
-
-	// Attempt to find the Lease configuration from the environment variables
-	env = os.Getenv(vipLeaseDuration)
-	if env != "" {
-		i, err := strconv.ParseInt(env, 10, 32)
-		if err != nil {
-			return err
-		}
-		c.LeaseDuration = int(i)
-	}
-
-	env = os.Getenv(vipRenewDeadline)
-	if env != "" {
-		i, err := strconv.ParseInt(env, 10, 32)
-		if err != nil {
-			return err
-		}
-		c.RenewDeadline = int(i)
-	}
-
-	env = os.Getenv(vipRetryPeriod)
-	if env != "" {
-		i, err := strconv.ParseInt(env, 10, 32)
-		if err != nil {
-			return err
-		}
-		c.RetryPeriod = int(i)
-	}
-
-	// Find vip address
-	env = os.Getenv(vipAddress)
-	if env != "" {
-		// TODO - parse address net.Host()
-		c.VIP = env
-		// } else {
-		// 	c.VIP = os.Getenv(address)
-	}
-
-	// Find address
-	env = os.Getenv(address)
-	if env != "" {
-		// TODO - parse address net.Host()
-		c.Address = env
-	}
-
-	// Find vip port
-	env = os.Getenv(port)
-	if env != "" {
-		i, err := strconv.ParseInt(env, 10, 32)
-		if err != nil {
-			return err
-		}
-		c.Port = int(i)
-	}
-
-	// Find vipDdns
-	env = os.Getenv(vipDdns)
-	if env != "" {
-		b, err := strconv.ParseBool(env)
-		if err != nil {
-			return err
-		}
-		c.DDNS = b
-	}
-
-	// Find vip address cidr range
-	env = os.Getenv(cpNamespace)
-	if env != "" {
-		c.Namespace = env
-	}
-
-	// Find the namespace that the control pane should use (for leaderElection lock)
-	env = os.Getenv(cpNamespace)
-	if env != "" {
-		c.Namespace = env
-	}
-
-	// Find controlplane toggle
-	env = os.Getenv(cpEnable)
-	if env != "" {
-		b, err := strconv.ParseBool(env)
-		if err != nil {
-			return err
-		}
-		c.EnableControlPane = b
-	}
-
-	// Find Services toggle
-	env = os.Getenv(svcEnable)
-	if env != "" {
-		b, err := strconv.ParseBool(env)
-		if err != nil {
-			return err
-		}
-		c.EnableServices = b
-	}
-
-	// Find vip address cidr range
-	env = os.Getenv(vipCidr)
-	if env != "" {
-		c.VIPCIDR = env
-	}
-
-	// Find Single Node
-	env = os.Getenv(vipSingleNode)
-	if env != "" {
-		b, err := strconv.ParseBool(env)
-		if err != nil {
-			return err
-		}
-		c.SingleNode = b
-	}
-
-	// Find annotation configuration
-	env = os.Getenv(annotations)
-	if env != "" {
-		c.Annotations = env
-	}
-
-	// Find Start As Leader
-	// TODO - does this need depricating?
-	// Required when the host sets itself as leader before the state change
-	env = os.Getenv(vipStartLeader)
-	if env != "" {
-		b, err := strconv.ParseBool(env)
-		if err != nil {
-			return err
-		}
-		c.StartAsLeader = b
-	}
-
-	// Find ARP
-	env = os.Getenv(vipArp)
-	if env != "" {
-		b, err := strconv.ParseBool(env)
-		if err != nil {
-			return err
-		}
-		c.EnableARP = b
-	}
-
-	// BGP Server options
-	env = os.Getenv(bgpEnable)
-	if env != "" {
-		b, err := strconv.ParseBool(env)
-		if err != nil {
-			return err
-		}
-		c.EnableBGP = b
-	}
-
-	// BGP Router interface determines an interface that we can use to find an address for
-	env = os.Getenv(bgpRouterInterface)
-	if env != "" {
-		_, address, err := detector.FindIPAddress(env)
-		if err != nil {
-			return err
-		}
-		c.BGPConfig.RouterID = address
-	}
-
-	// RouterID
-	env = os.Getenv(bgpRouterID)
-	if env != "" {
-		c.BGPConfig.RouterID = env
-	}
-
-	// AS
-	env = os.Getenv(bgpRouterAS)
-	if env != "" {
-		u64, err := strconv.ParseUint(env, 10, 32)
-		if err != nil {
-			return err
-		}
-		c.BGPConfig.AS = uint32(u64)
-	}
-
-	// Peer AS
-	env = os.Getenv(bgpPeerAS)
-	if env != "" {
-		u64, err := strconv.ParseUint(env, 10, 32)
-		if err != nil {
-			return err
-		}
-		c.BGPPeerConfig.AS = uint32(u64)
-	}
-
-	// Peer AS
-	env = os.Getenv(bgpPeers)
-	if env != "" {
-		peers, err := bgp.ParseBGPPeerConfig(env)
-		if err != nil {
-			return err
-		}
-		c.BGPConfig.Peers = peers
-	}
-
-	// BGP Peer mutlihop
-	env = os.Getenv(bgpMultiHop)
-	if env != "" {
-		b, err := strconv.ParseBool(env)
-		if err != nil {
-			return err
-		}
-		c.BGPPeerConfig.MultiHop = b
-	}
-
-	// BGP Peer password
-	env = os.Getenv(bgpPeerPassword)
-	if env != "" {
-		c.BGPPeerConfig.Password = env
-	}
-
-	// BGP Source Interface
-	env = os.Getenv(bgpSourceIF)
-	if env != "" {
-		c.BGPConfig.SourceIF = env
-	}
-
-	// BGP Source Address
-	env = os.Getenv(bgpSourceIP)
-	if env != "" {
-		c.BGPConfig.SourceIP = env
-	}
-
-	// BGP Peer options, add them if relevant
-	env = os.Getenv(bgpPeerAddress)
-	if env != "" {
-		c.BGPPeerConfig.Address = env
-		// If we've added in a peer configuration, then we should add it to the BGP configuration
-		c.BGPConfig.Peers = append(c.BGPConfig.Peers, c.BGPPeerConfig)
-	}
-
-	// Enable the Packet API calls
-	env = os.Getenv(vipPacket)
-	if env != "" {
-		b, err := strconv.ParseBool(env)
-		if err != nil {
-			return err
-		}
-		c.EnableMetal = b
-	}
-
-	// Find the Packet project name
-	env = os.Getenv(vipPacketProject)
-	if env != "" {
-		// TODO - parse address net.Host()
-		c.MetalProject = env
-	}
-
-	// Find the Packet project ID
-	env = os.Getenv(vipPacketProjectID)
-	if env != "" {
-		// TODO - parse address net.Host()
-		c.MetalProjectID = env
-	}
-
-	// Enable the load-balancer
-	env = os.Getenv(lbEnable)
-	if env != "" {
-		b, err := strconv.ParseBool(env)
-		if err != nil {
-			return err
-		}
-		c.EnableLoadBalancer = b
-	}
-
-	// Find loadbalancer port
-	env = os.Getenv(lbPort)
-	if env != "" {
-		i, err := strconv.ParseInt(env, 10, 32)
-		if err != nil {
-			return err
-		}
-		c.LoadBalancerPort = int(i)
-	}
-	return nil
-}
 
 // generatePodSpec will take a kube-vip config and generate a Pod spec
 func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod {
 	command := "manager"
+
+	// Determine where the pods should be living (for multi-tenancy)
+	var namespace string
+	if c.ServiceNamespace != "" {
+		namespace = c.ServiceNamespace
+	} else {
+		namespace = metav1.NamespaceSystem
+	}
 
 	// build environment variables
 	newEnvironment := []corev1.EnvVar{
@@ -382,15 +67,26 @@ func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod
 			},
 		}
 		newEnvironment = append(newEnvironment, cidr...)
+	}
 
+	// If a subnet is required for the VIP
+	if c.VIPSubnet != "" {
+		// build environment variables
+		cidr := []corev1.EnvVar{
+			{
+				Name:  vipSubnet,
+				Value: c.VIPSubnet,
+			},
+		}
+		newEnvironment = append(newEnvironment, cidr...)
 	}
 
 	// If we're doing the hybrid mode
-	if c.EnableControlPane {
+	if c.EnableControlPlane {
 		cp := []corev1.EnvVar{
 			{
 				Name:  cpEnable,
-				Value: strconv.FormatBool(c.EnableControlPane),
+				Value: strconv.FormatBool(c.EnableControlPlane),
 			},
 			{
 				Name:  cpNamespace,
@@ -406,13 +102,44 @@ func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod
 
 	// If we're doing the hybrid mode
 	if c.EnableServices {
-		cp := []corev1.EnvVar{
+		svc := []corev1.EnvVar{
 			{
 				Name:  svcEnable,
 				Value: strconv.FormatBool(c.EnableServices),
 			},
+			{
+				Name:  svcLeaseName,
+				Value: c.ServicesLeaseName,
+			},
 		}
-		newEnvironment = append(newEnvironment, cp...)
+		newEnvironment = append(newEnvironment, svc...)
+		if c.EnableServicesElection {
+			svcElection := []corev1.EnvVar{
+				{
+					Name:  svcElection,
+					Value: strconv.FormatBool(c.EnableServicesElection),
+				},
+			}
+			newEnvironment = append(newEnvironment, svcElection...)
+		}
+		if c.LoadBalancerClassOnly {
+			lbClassOnlyVar := []corev1.EnvVar{
+				{
+					Name:  lbClassOnly,
+					Value: strconv.FormatBool(c.LoadBalancerClassOnly),
+				},
+			}
+			newEnvironment = append(newEnvironment, lbClassOnlyVar...)
+		}
+		if c.EnableServiceSecurity {
+			EnableServiceSecurityVar := []corev1.EnvVar{
+				{
+					Name:  EnableServiceSecurity,
+					Value: strconv.FormatBool(c.EnableServiceSecurity),
+				},
+			}
+			newEnvironment = append(newEnvironment, EnableServiceSecurityVar...)
+		}
 	}
 
 	// If Leader election is enabled then add the configuration to the manifest
@@ -422,6 +149,10 @@ func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod
 			{
 				Name:  vipLeaderElection,
 				Value: strconv.FormatBool(c.EnableLeaderElection),
+			},
+			{
+				Name:  vipLeaseName,
+				Value: c.LeaseName,
 			},
 			{
 				Name:  vipLeaseDuration,
@@ -454,6 +185,17 @@ func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod
 		newEnvironment = append(newEnvironment, leaderElection...)
 	}
 
+	// If we're enabling node labeling on leader election
+	if c.EnableNodeLabeling {
+		EnableNodeLabeling := []corev1.EnvVar{
+			{
+				Name:  EnableNodeLabeling,
+				Value: strconv.FormatBool(c.EnableNodeLabeling),
+			},
+		}
+		newEnvironment = append(newEnvironment, EnableNodeLabeling...)
+	}
+
 	// If we're specifying an annotation configuration
 	if c.Annotations != "" {
 		annotations := []corev1.EnvVar{
@@ -477,7 +219,7 @@ func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod
 		newEnvironment = append(newEnvironment, provider...)
 	}
 
-	// If Packet is enabled then add it to the manifest
+	// If Equinix Metal is enabled then add it to the manifest
 	if c.EnableMetal {
 		packet := []corev1.EnvVar{
 			{
@@ -500,7 +242,29 @@ func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod
 		newEnvironment = append(newEnvironment, packet...)
 	}
 
-	// If BGP, but we're not using packet
+	// Detect and enable wireguard mode
+	if c.EnableWireguard {
+		wireguard := []corev1.EnvVar{
+			{
+				Name:  vipWireguard,
+				Value: strconv.FormatBool(c.EnableWireguard),
+			},
+		}
+		newEnvironment = append(newEnvironment, wireguard...)
+	}
+
+	// Detect and enable routing table mode
+	if c.EnableRoutingTable {
+		routingtable := []corev1.EnvVar{
+			{
+				Name:  vipRoutingTable,
+				Value: strconv.FormatBool(c.EnableRoutingTable),
+			},
+		}
+		newEnvironment = append(newEnvironment, routingtable...)
+	}
+
+	// If BGP, but we're not using Equinix Metal
 	if c.EnableBGP {
 		bgp := []corev1.EnvVar{
 			{
@@ -510,7 +274,7 @@ func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod
 		}
 		newEnvironment = append(newEnvironment, bgp...)
 	}
-	// If BGP, but we're not using packet
+	// If BGP, but we're not using Equinix Metal
 	if c.EnableBGP && !c.EnableMetal {
 		bgpConfig := []corev1.EnvVar{
 			{
@@ -584,6 +348,10 @@ func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod
 				Name:  lbPort,
 				Value: fmt.Sprintf("%d", c.LoadBalancerPort),
 			},
+			{
+				Name:  lbForwardingMethod,
+				Value: c.LoadBalancerForwardingMethod,
+			},
 		}
 
 		newEnvironment = append(newEnvironment, lb...)
@@ -601,6 +369,16 @@ func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod
 		})
 	}
 
+	if c.PrometheusHTTPServer != "" {
+		prometheus := []corev1.EnvVar{
+			{
+				Name:  prometheusServer,
+				Value: c.PrometheusHTTPServer,
+			},
+		}
+		newEnvironment = append(newEnvironment, prometheus...)
+	}
+
 	newManifest := &corev1.Pod{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Pod",
@@ -608,7 +386,7 @@ func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "kube-vip",
-			Namespace: "kube-system",
+			Namespace: namespace,
 		},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
@@ -621,7 +399,6 @@ func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod
 							Add: []corev1.Capability{
 								"NET_ADMIN",
 								"NET_RAW",
-								"SYS_TIME",
 							},
 						},
 					},
@@ -636,7 +413,7 @@ func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod
 	}
 
 	if inCluster {
-		// If we're running this inCluster then the acccount name will be required
+		// If we're running this inCluster then the account name will be required
 		newManifest.Spec.ServiceAccountName = "kube-vip"
 	} else {
 		// If this isn't inside a cluster then add the external path mount
@@ -684,7 +461,6 @@ func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod
 	}
 
 	return newManifest
-
 }
 
 // GeneratePodManifestFromConfig will take a kube-vip config and generate a manifest
@@ -694,8 +470,15 @@ func GeneratePodManifestFromConfig(c *Config, imageVersion string, inCluster boo
 	return string(b)
 }
 
-// GenerateDeamonsetManifestFromConfig will take a kube-vip config and generate a manifest
-func GenerateDeamonsetManifestFromConfig(c *Config, imageVersion string, inCluster, taint bool) string {
+// GenerateDaemonsetManifestFromConfig will take a kube-vip config and generate a manifest
+func GenerateDaemonsetManifestFromConfig(c *Config, imageVersion string, inCluster, taint bool) string {
+	// Determine where the pod should be deployed
+	var namespace string
+	if c.ServiceNamespace != "" {
+		namespace = c.ServiceNamespace
+	} else {
+		namespace = metav1.NamespaceSystem
+	}
 
 	podSpec := generatePodSpec(c, imageVersion, inCluster).Spec
 	newManifest := &appv1.DaemonSet{
@@ -705,18 +488,23 @@ func GenerateDeamonsetManifestFromConfig(c *Config, imageVersion string, inClust
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "kube-vip-ds",
-			Namespace: "kube-system",
+			Namespace: namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/name":    "kube-vip-ds",
+				"app.kubernetes.io/version": imageVersion,
+			},
 		},
 		Spec: appv1.DaemonSetSpec{
 			Selector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{
-					"name": "kube-vip-ds",
+					"app.kubernetes.io/name": "kube-vip-ds",
 				},
 			},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
 					Labels: map[string]string{
-						"name": "kube-vip-ds",
+						"app.kubernetes.io/name":    "kube-vip-ds",
+						"app.kubernetes.io/version": imageVersion,
 					},
 				},
 				Spec: podSpec,

@@ -8,7 +8,9 @@ spec:
   containers:
   - name: kube-vip
     args:
-    - start
+    - manager
+    - --prometheusHTTPServer
+    - ""
     env:
     - name: vip_arp
       value: "true"
@@ -24,16 +26,22 @@ spec:
       value: "3"
     - name: vip_retryperiod
       value: "1"
+    - name: cp_enable
+      value: "true"
     image: "{{ .ImagePath }}"
     imagePullPolicy: Never
     securityContext:
       capabilities:
         add:
         - NET_ADMIN
-        - SYS_TIME
+        - NET_RAW
     volumeMounts:
     - mountPath: /etc/kubernetes/admin.conf
       name: kubeconfig
+  hostAliases:
+    - hostnames:
+      - kubernetes
+      ip: 127.0.0.1
   hostNetwork: true
   volumes:
   - hostPath:

@@ -11,6 +11,7 @@ var Version string
 var Build string
 
 func main() {
+
 	cmd.Release.Version = Version
 	cmd.Release.Build = Build
 	cmd.Execute()

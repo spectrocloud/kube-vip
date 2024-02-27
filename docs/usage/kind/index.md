@@ -2,7 +2,13 @@
 
 ## Deploying KIND
 
-The documentation for KIND is fantastic and it's quickstart guide will have you up and running in no time -> [https://kind.sigs.k8s.io/docs/user/quick-start/](https://kind.sigs.k8s.io/docs/user/quick-start/)
+The documentation for KIND is fantastic and its [quick start](https://kind.sigs.k8s.io/docs/user/quick-start/) guide will have you up and running in no time.
+
+## Create RBAC settings
+
+```
+kubectl apply -f https://kube-vip.io/manifests/rbac.yaml
+```
 
 ## Find Address Pool for Kube-Vip
 
@@ -12,12 +18,12 @@ We will need to find addresses that can be used by Kube-Vip:
 docker network inspect kind -f '{{ range $i, $a := .IPAM.Config }}{{ println .Subnet }}{{ end }}'
 ```
 
-This will return a cidr range such as `172.18.0.0/16` and from here we can select a range.
+This will return a CIDR range such as `172.18.0.0/16` and from here we can select a range.
 
 ## Deploy the Kube-Vip Cloud Controller
 
 ```
-$ kubectl apply -f https://raw.githubusercontent.com/kube-vip/kube-vip-cloud-provider/main/manifest/kube-vip-cloud-controller.yaml
+kubectl apply -f https://raw.githubusercontent.com/kube-vip/kube-vip-cloud-provider/main/manifest/kube-vip-cloud-controller.yaml
 ```
 
 ## Add our Address range
@@ -28,9 +34,17 @@ kubectl create configmap --namespace kube-system kubevip --from-literal range-gl
 
 ## Install kube-vip
 
-### Get latest version
+### Create the RBAC settings
 
- We can parse the GitHub API to find the latest version (or we can set this manually)
+Since `kube-vip` as a DaemonSet runs as a regular resource instead of a static Pod, it still needs the correct access to be able to watch Kubernetes Services and other objects. In order to do this, RBAC resources must be created which include a ServiceAccount, ClusterRole, and ClusterRoleBinding and can be applied this with the command:
+
+```
+kubectl apply -f https://kube-vip.io/manifests/rbac.yaml
+```
+
+### Get latest version
+
+We can parse the GitHub API to find the latest version (or we can set this manually)
 
 `KVVERSION=$(curl -sL https://api.github.com/repos/kube-vip/kube-vip/releases | jq -r ".[0].name")`
 
@@ -41,15 +55,17 @@ or manually:
 The easiest method to generate a manifest is using the container itself, below will create an alias for different container runtimes.
 
 ### containerd
+
 `alias kube-vip="ctr run --rm --net-host ghcr.io/kube-vip/kube-vip:$KVVERSION vip /kube-vip"`
 
 ### Docker
-`alias kube-vip="docker run --network host --rm ghcr.io/kube-vip/kube-vip:KVVERSION"`
 
-## Deploy Kube-vip as a deamonset
+`alias kube-vip="docker run --network host --rm ghcr.io/kube-vip/kube-vip:$KVVERSION"`
+
+## Deploy Kube-vip as a DaemonSet
 
 ```
-kube-vip manifest daemonset --services --inCluster --arp --interface eth0 | ./kubectl apply -f -
+kube-vip manifest daemonset --services --inCluster --arp --interface eth0 | kubectl apply -f -
 ```
 
 ## Test

@@ -3,6 +3,7 @@ package vip
 import (
 	"fmt"
 	"net"
+	"net/netip"
 
 	"github.com/mdlayher/ndp"
 
@@ -24,7 +25,7 @@ func NewNDPResponder(ifaceName string) (*NdpResponder, error) {
 	}
 
 	// Use link-local address as the source IPv6 address for NDP communications.
-	conn, _, err := ndp.Dial(iface, ndp.LinkLocal)
+	conn, _, err := ndp.Listen(iface, ndp.LinkLocal)
 	if err != nil {
 		return nil, fmt.Errorf("creating NDP responder for %q: %s", iface.Name, err)
 	}
@@ -44,16 +45,16 @@ func (n *NdpResponder) Close() error {
 
 // SendGratuitous broadcasts an NDP update or returns error if encountered.
 func (n *NdpResponder) SendGratuitous(address string) error {
-	ip := net.ParseIP(address)
-	if ip == nil {
+	ip, err := netip.ParseAddr(address)
+	if err != nil {
 		return fmt.Errorf("failed to parse address %s", ip)
 	}
 
 	log.Infof("Broadcasting NDP update for %s (%s) via %s", address, n.hardwareAddr, n.intf)
-	return n.advertise(net.IPv6linklocalallnodes, ip, true)
+	return n.advertise(netip.IPv6LinkLocalAllNodes(), ip, true)
 }
 
-func (n *NdpResponder) advertise(dst, target net.IP, gratuitous bool) error {
+func (n *NdpResponder) advertise(dst, target netip.Addr, gratuitous bool) error {
 	m := &ndp.NeighborAdvertisement{
 		Solicited:     !gratuitous,
 		Override:      gratuitous, // Should clients replace existing cache entries

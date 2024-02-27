@@ -13,7 +13,7 @@ import (
 // - Pod spec manifest, mainly used for a static pod (kubeadm)
 // - Daemonset manifest, mainly used to run kube-vip as a deamonset within Kubernetes (k3s/rke)
 
-//var inCluster bool
+// var inCluster bool
 var taint bool
 
 func init() {
@@ -46,7 +46,7 @@ var kubeManifestPod = &cobra.Command{
 		}
 
 		// The control plane has a requirement for a VIP being specified
-		if initConfig.EnableControlPane && (initConfig.VIP == "" && initConfig.Address == "" && !initConfig.DDNS) {
+		if initConfig.EnableControlPlane && (initConfig.VIP == "" && initConfig.Address == "" && !initConfig.DDNS) {
 			_ = cmd.Help()
 			log.Fatalln("No address is specified for kube-vip to expose services on")
 		}
@@ -71,11 +71,11 @@ var kubeManifestDaemon = &cobra.Command{
 		// TODO - check for certain things VIP/interfaces
 
 		// The control plane has a requirement for a VIP being specified
-		if initConfig.EnableControlPane && (initConfig.VIP == "" && initConfig.Address == "" && !initConfig.DDNS) {
+		if initConfig.EnableControlPlane && (initConfig.VIP == "" && initConfig.Address == "" && !initConfig.DDNS) {
 			_ = cmd.Help()
 			log.Fatalln("No address is specified for kube-vip to expose services on")
 		}
-		cfg := kubevip.GenerateDeamonsetManifestFromConfig(&initConfig, Release.Version, inCluster, taint)
+		cfg := kubevip.GenerateDaemonsetManifestFromConfig(&initConfig, Release.Version, inCluster, taint)
 
 		fmt.Println(cfg)
 	},
