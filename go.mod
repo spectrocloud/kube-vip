@@ -1,6 +1,8 @@
 module github.com/kube-vip/kube-vip
 
-go 1.21
+go 1.22
+
+toolchain go1.22.5
 
 require (
 	github.com/cloudflare/ipvs v0.9.1
