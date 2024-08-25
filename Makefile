@@ -114,7 +114,7 @@ release-dockerx86:
 
 docker:
 	@-rm ./kube-vip
-	@docker buildx build --build-arg CRYPTO_LIB=${FIPS_ENABLE} ${BUILD_ARGS} --push  --platform linux/amd64 -t ${IMG} .
+	@docker buildx build --build-arg CRYPTO_LIB=${FIPS_ENABLE} ${BUILD_ARGS} --push  --platform linux/amd64 --platform linux/arm64 -t ${IMG} .
 	@echo New Multi Architecture Docker image created
 
 ## Local (docker load of images)
