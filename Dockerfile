@@ -8,12 +8,11 @@ ARG TARGETARCH
 ARG CRYPTO_LIB
 ENV GOEXPERIMENT=${CRYPTO_LIB:+boringcrypto}
 
-RUN apk add --no-cache git ca-certificates make
-RUN adduser -D appuser
+RUN apk add --no-cache git ca-certificates make coreutils gcc musl-dev
+
 COPY . /src/
 WORKDIR /src
 
-ENV GO111MODULE=on
 RUN --mount=type=cache,sharing=locked,id=gomod,target=/go/pkg/mod/cache \
     --mount=type=cache,sharing=locked,id=goroot,target=/root/.cache/go-build \
     if [ ${CRYPTO_LIB} ]; \
