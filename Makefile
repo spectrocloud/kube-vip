@@ -5,7 +5,7 @@ TARGET := kube-vip
 .DEFAULT_GOAL := $(TARGET)
 
 # These will be provided to the target
-VERSION := v0.6.3
+VERSION := v0.6.3_spectro_1.0
 
 BUILD := `git rev-parse HEAD`
 
@@ -15,7 +15,17 @@ TARGETOS=linux
 # Use linker flags to provide version/build settings to the target
 LDFLAGS=-ldflags "-s -w -X=main.Version=$(VERSION) -X=main.Build=$(BUILD) -extldflags -static"
 DOCKERTAG ?= $(VERSION)
-REPOSITORY = plndr
+REPOSITORY ?= gcr.io/spectro-dev-public/release
+
+GOLANG_VERSION=1.22
+FIPS_ENABLE ?= ""
+BUILD_ARGS = --build-arg CRYPTO_LIB=${FIPS_ENABLE} --build-arg GOLANG_VERSION=${GOLANG_VERSION}
+PLATFORM ?= "linux/amd64,linux/arm64"
+ifeq ($(FIPS_ENABLE),yes)
+	REPOSITORY ?= gcr.io/spectro-dev-public/release-fips
+	PLATFORM = "linux/amd64"
+endif
+
 
 .PHONY: all build clean install uninstall fmt simplify check run e2e-tests
 
@@ -64,10 +74,16 @@ dockerx86:
 	@docker buildx build  --platform linux/amd64 --push -t $(REPOSITORY)/$(TARGET):$(DOCKERTAG) .
 	@echo New single x86 Architecture Docker image created
 
+docker-all:
+	@echo "Building non-fips image"
+	@${MAKE} FIPS_ENABLE='' docker
+	@echo "Building fips image"
+	@${MAKE} FIPS_ENABLE='yes' docker
+
 docker:
 	@-rm ./kube-vip
-	@docker buildx build  --platform linux/amd64,linux/arm64,linux/arm/v7,linux/ppc64le,linux/s390x --push -t $(REPOSITORY)/$(TARGET):$(DOCKERTAG) .
-	@echo New Multi Architecture Docker image created
+	@docker buildx build --platform linux/amd64,linux/arm64 --push -t $(REPOSITORY)/$(TARGET):$(DOCKERTAG) . ${BUILD_ARGS}
+	@echo $(REPOSITORY)/$(TARGET):$(DOCKERTAG)
 
 ## Local (docker load of images)
 # This will build a local docker image (x86 only), use make dockerLocal for all architectures
