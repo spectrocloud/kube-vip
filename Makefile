@@ -22,7 +22,7 @@ FIPS_ENABLE ?= ""
 BUILD_ARGS = --build-arg CRYPTO_LIB=${FIPS_ENABLE} --build-arg GOLANG_VERSION=${GOLANG_VERSION}
 PLATFORM ?= "linux/amd64,linux/arm64"
 ifeq ($(FIPS_ENABLE),yes)
-	REPOSITORY ?= gcr.io/spectro-dev-public/release-fips
+	REPOSITORY = gcr.io/spectro-dev-public/release-fips
 	PLATFORM = "linux/amd64"
 endif
 
@@ -78,7 +78,7 @@ docker-all:
 	@echo "Building non-fips image"
 	@${MAKE} FIPS_ENABLE='' docker
 	@echo "Building fips image"
-	@${MAKE} FIPS_ENABLE='yes' docker
+	@${MAKE} FIPS_ENABLE=yes docker
 
 docker:
 	@-rm ./kube-vip
