@@ -82,7 +82,7 @@ docker-all:
 
 docker:
 	@-rm ./kube-vip
-	@docker buildx build --platform linux/amd64,linux/arm64 --push -t $(REPOSITORY)/$(TARGET):$(DOCKERTAG) . ${BUILD_ARGS}
+	@docker buildx build --platform ${PLATFORM} --push -t $(REPOSITORY)/$(TARGET):$(DOCKERTAG) . ${BUILD_ARGS}
 	@echo $(REPOSITORY)/$(TARGET):$(DOCKERTAG)
 
 ## Local (docker load of images)
