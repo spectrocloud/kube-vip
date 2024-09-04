@@ -14,7 +14,9 @@ COPY . /src/
 WORKDIR /src
 
 ENV GO111MODULE=on
-RUN if [ ${CRYPTO_LIB} ]; \
+RUN --mount=type=cache,sharing=locked,id=gomod,target=/go/pkg/mod/cache \
+    --mount=type=cache,sharing=locked,id=goroot,target=/root/.cache/go-build \
+    if [ ${CRYPTO_LIB} ]; \
     then \
       go-build-fips.sh -a -o kube-vip ;\
     else \
