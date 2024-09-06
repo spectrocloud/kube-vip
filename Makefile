@@ -5,7 +5,7 @@ TARGET := kube-vip
 .DEFAULT_GOAL := $(TARGET)
 
 # These will be provided to the target
-VERSION := v0.6.3_spectro_1.0
+VERSION := v0.6.3_spectro_1.1
 
 BUILD := `git rev-parse HEAD`
 
@@ -79,6 +79,12 @@ docker-all:
 	@${MAKE} FIPS_ENABLE='' docker
 	@echo "Building fips image"
 	@${MAKE} FIPS_ENABLE=yes docker
+	@${MAKE} image
+	@${MAKE} FIPS_ENABLE=yes image
+
+image:
+	@echo "FIPS: ${FIPS_ENABLE}"
+	@echo $(REPOSITORY)/$(TARGET):$(DOCKERTAG)
 
 docker:
 	@-rm ./kube-vip
