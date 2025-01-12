@@ -1,0 +1,13 @@
+{
+  "repoOwner": "spectrocloud",
+  "repoName": "kube-vip",
+  "editor": "code",
+
+  "targetBranchChoices": ["spectro-master","spectro-release-4.4"],
+  "autoMerge": false,
+  "autoMergeMethod": "squash",
+  "commitConflicts": true,
+  "branchLabelMapping": {
+    "^backport-(.+)$": "$1"
+  }
+}
