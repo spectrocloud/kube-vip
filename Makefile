@@ -21,10 +21,6 @@ GOLANG_VERSION=1.23
 FIPS_ENABLE ?= ""
 BUILD_ARGS = --build-arg CRYPTO_LIB=${FIPS_ENABLE} --build-arg GOLANG_VERSION=${GOLANG_VERSION}
 PLATFORM ?= "linux/amd64,linux/arm64"
-ifeq ($(FIPS_ENABLE),yes)
-	REPOSITORY = gcr.io/spectro-dev-public/release-fips
-endif
-
 
 .PHONY: all build clean install uninstall fmt simplify check run e2e-tests
 
