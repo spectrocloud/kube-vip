@@ -13,6 +13,7 @@ import (
 
 	"github.com/kube-vip/kube-vip/pkg/cluster"
 	"github.com/kube-vip/kube-vip/pkg/iptables"
+	"github.com/kube-vip/kube-vip/pkg/utils"
 	"github.com/kube-vip/kube-vip/pkg/vip"
 )
 
@@ -48,6 +49,18 @@ func (sm *Manager) startARP(id string) error {
 		if err != nil {
 			return err
 		}
+
+		if err := cpCluster.StartDDNS(context.Background()); err != nil {
+			log.Error(err.Error())
+		}
+
+		sm.config.VIPSubnet, err = utils.GenerateCidrRange(sm.config.Address)
+		if err != nil {
+			log.Error("generating CIDR", "err", err)
+			log.Error(err.Error())
+		}
+
+		log.Info("sm.config.VIPSubnet after: ", sm.config.VIPSubnet)
 
 		clusterManager, err := initClusterManager(sm)
 		if err != nil {

@@ -53,6 +53,7 @@ type Network interface {
 	SetHasEndpoints(value bool)
 	HasEndpoints() bool
 	ARPName() string
+	GetAddress() string
 }
 
 // network - This allows network configuration
@@ -133,12 +134,15 @@ func NewConfig(address string, iface string, loGlobalScope bool, subnet string, 
 
 		networks = append(networks, result)
 	} else {
+		log.Info("LookupHost - resolving ip")
 		// try to resolve the address
 		ips, err := LookupHost(address, dnsMode)
 		if err != nil {
+			log.Info("LookupHost - error ", err.Error())
 			// return early for ddns if no IP is allocated for the domain
 			// when leader starts, should do get IP from DHCP for the domain
 			if isDDNS {
+				log.Info("LookupHost - setting n/w result")
 				result := &network{
 					link:             networkLink,
 					routeTable:       tableID,
@@ -159,6 +163,7 @@ func NewConfig(address string, iface string, loGlobalScope bool, subnet string, 
 		}
 
 		for _, ip := range ips {
+			log.Info("LookupHost - ip ", ip)
 			result := &network{
 				link:             networkLink,
 				routeTable:       tableID,
@@ -172,8 +177,12 @@ func NewConfig(address string, iface string, loGlobalScope bool, subnet string, 
 				enableSecurity:   enableSecurity,
 			}
 
-			// we're able to resolve store this as the initial IP
+			subnet, err = utils.GenerateCidrRange(ip)
+			if err != nil {
+				log.Error("generating CIDR", "err", err)
+			}
 
+			// we're able to resolve store this as the initial IP
 			if result.address, err = netlink.ParseAddr(fmt.Sprintf("%s/%s", ip, subnet)); err != nil {
 				return networks, err
 			}
@@ -794,6 +803,10 @@ func (configurator *network) SetMask(mask string) error {
 func (configurator *network) SetHasEndpoints(value bool) {
 	log.Debug("setting HasEndpoints", "ip", configurator.IP(), "value", value)
 	configurator.hasEndpoints = value
+}
+
+func (configurator *network) GetAddress() string {
+	return configurator.address.String()
 }
 
 func (configurator *network) HasEndpoints() bool {
