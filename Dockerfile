@@ -5,12 +5,6 @@ FROM --platform=$TARGETPLATFORM us-docker.pkg.dev/palette-images/build-base-imag
 # FIPS
 ARG CRYPTO_LIB
 
-ARG BUILDER_GOLANG_VERSION
-# First stage: build the executable.
-FROM --platform=$TARGETPLATFORM gcr.io/spectro-images-public/golang:${BUILDER_GOLANG_VERSION}-alpine as dev
-# FIPS
-ARG CRYPTO_LIB
-
 RUN apk add --no-cache git ca-certificates make  gcc g++
 RUN adduser -D appuser
 COPY . /src/

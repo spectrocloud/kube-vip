@@ -7,19 +7,7 @@ TARGET := kube-vip
 # Fips Flags
 FIPS_ENABLE ?= ""
 
-BUILDER_GOLANG_VERSION ?= 1.23
-BUILD_ARGS = --build-arg CRYPTO_LIB=${FIPS_ENABLE} --build-arg BUILDER_GOLANG_VERSION=${BUILDER_GOLANG_VERSION}
-
-RELEASE_LOC := release
-ifeq ($(FIPS_ENABLE),yes)
-  CGO_ENABLED := 1
-  RELEASE_LOC := release-fips
-endif
-
-# Fips Flags
-FIPS_ENABLE ?= ""
-
-BUILDER_GOLANG_VERSION ?= 1.22
+BUILDER_GOLANG_VERSION ?= 1.24
 BUILD_ARGS = --build-arg CRYPTO_LIB=${FIPS_ENABLE} --build-arg BUILDER_GOLANG_VERSION=${BUILDER_GOLANG_VERSION}
 
 RELEASE_LOC := release
@@ -30,7 +18,7 @@ endif
 
 # These will be provided to the target
 VERSION := v0.6.4
-SPECTRO_VERSION ?= 4.0.0-dev
+SPECTRO_VERSION ?= 4.7.0-20250827
 BUILD := `git rev-parse HEAD`
 
 # Operating System Default (LINUX)
@@ -43,14 +31,6 @@ ifeq ($(FIPS_ENABLE),yes)
 endif
 DOCKERTAG ?= $(VERSION)
 REPOSITORY ?= plndr
-
-IMAGE_NAME := kube-vip
-REGISTRY ?= gcr.io/spectro-dev-public/$(USER)/${RELEASE_LOC}
-IMG_TAG ?= v0.6.4-spectro-${SPECTRO_VERSION}
-IMG ?= ${REGISTRY}/${IMAGE_NAME}:${IMG_TAG}
-
-RELEASE_REGISTRY := gcr.io/spectro-images-public/release/kube-vip
-RELEASE_CONTROLLER_IMG := $(RELEASE_REGISTRY)/$(IMAGE_NAME)
 
 IMAGE_NAME := kube-vip
 REGISTRY ?= gcr.io/spectro-dev-public/$(USER)/${RELEASE_LOC}
