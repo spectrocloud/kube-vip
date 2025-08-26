@@ -7,6 +7,7 @@ import (
 	log "log/slog"
 
 	"github.com/kube-vip/kube-vip/pkg/kubevip"
+	"github.com/kube-vip/kube-vip/pkg/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -43,10 +44,11 @@ var kubeKubeadmInit = &cobra.Command{
 			return
 		}
 
+		fmt.Println("JAYESH TEST: Interface :", initConfig.Interface)
 		// TODO - check for certain things VIP/interfaces
 		if initConfig.Interface == "" {
 			_ = cmd.Help()
-			log.Error("No interface is specified for kube-vip to bind to")
+			log.Error("JAYESH TEST: kube-vip init : No interface is specified for kube-vip to bind to")
 			return
 		}
 
@@ -58,7 +60,7 @@ var kubeKubeadmInit = &cobra.Command{
 
 		// Ensure there is an address to generate the CIDR from
 		if initConfig.VIPSubnet == "" && initConfig.Address != "" {
-			initConfig.VIPSubnet, err = GenerateCidrRange(initConfig.Address)
+			initConfig.VIPSubnet, err = utils.GenerateCidrRange(initConfig.Address)
 			if err != nil {
 				log.Error("generating VIPSubnet", "err", err)
 				return
@@ -83,10 +85,11 @@ var kubeKubeadmJoin = &cobra.Command{
 			return
 		}
 
+		fmt.Println("JAYESH TEST: Interface :", initConfig.Interface)
 		// TODO - check for certain things VIP/interfaces
 		if initConfig.Interface == "" {
 			_ = cmd.Help()
-			log.Error("No interface is specified for kube-vip to bind to")
+			log.Error("JAYESH TEST: kube-vip join : No interface is specified for kube-vip to bind to")
 			return
 		}
 
@@ -103,7 +106,7 @@ var kubeKubeadmJoin = &cobra.Command{
 
 		// Ensure there is an address to generate the CIDR from
 		if initConfig.VIPSubnet == "" && initConfig.Address != "" {
-			initConfig.VIPSubnet, err = GenerateCidrRange(initConfig.Address)
+			initConfig.VIPSubnet, err = utils.GenerateCidrRange(initConfig.Address)
 			if err != nil {
 				log.Error("generating VIPSubnet", "err", err)
 				return

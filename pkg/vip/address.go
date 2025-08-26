@@ -105,6 +105,8 @@ func NewConfig(address string, iface string, loGlobalScope bool, subnet string, 
 			ipvsEnabled:      ipvsEnabled,
 		}
 
+		subnet = utils.GetSubnet(address)
+
 		subnet, err = SelectSubnet(address, subnet)
 		if err != nil {
 			return networks, fmt.Errorf("unable to select subnet for IP %q from %q: %w", address, subnet, err)
@@ -133,12 +135,14 @@ func NewConfig(address string, iface string, loGlobalScope bool, subnet string, 
 
 		networks = append(networks, result)
 	} else {
+		log.Info("LookupHost - resolving ip")
 		// try to resolve the address
 		ips, err := LookupHost(address, dnsMode)
 		if err != nil {
 			// return early for ddns if no IP is allocated for the domain
 			// when leader starts, should do get IP from DHCP for the domain
 			if isDDNS {
+				log.Info("LookupHost - setting n/w result")
 				result := &network{
 					link:             networkLink,
 					routeTable:       tableID,
@@ -159,6 +163,7 @@ func NewConfig(address string, iface string, loGlobalScope bool, subnet string, 
 		}
 
 		for _, ip := range ips {
+			log.Info("LookupHost - ip ", ip)
 			result := &network{
 				link:             networkLink,
 				routeTable:       tableID,
@@ -171,6 +176,8 @@ func NewConfig(address string, iface string, loGlobalScope bool, subnet string, 
 				ipvsEnabled:      ipvsEnabled,
 				enableSecurity:   enableSecurity,
 			}
+
+			subnet = utils.GetSubnet(ip)
 
 			// we're able to resolve store this as the initial IP
 

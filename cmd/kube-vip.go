@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -212,14 +211,20 @@ var kubeVipService = &cobra.Command{
 			configMap = envConfigMap
 		}
 
-		// Ensure there is an address to generate the CIDR from
-		if initConfig.VIPSubnet == "" && initConfig.Address != "" {
-			initConfig.VIPSubnet, err = GenerateCidrRange(initConfig.Address)
-			if err != nil {
-				log.Error("generating CIDR", "err", err)
-				return
-			}
-		}
+		//// Ensure there is an address to generate the CIDR from
+		//if initConfig.VIPSubnet == "" && initConfig.Address != "" {
+		//	initConfig.VIPSubnet, err = GenerateCidrRange(initConfig.Address)
+		//	if err != nil {
+		//		log.Error("generating CIDR", "err", err)
+		//		return
+		//	}
+		//}
+
+		// Set default CIDR if not specified
+		//if initConfig.VIPSubnet == "" {
+		//	initConfig.VIPSubnet = "32" // Default to /32 for IPv4
+		//	log.Info("using default CIDR /32 for VIP subnet")
+		//}
 
 		// Define the new service manager
 		mgr, err := manager.New(configMap, &initConfig)
@@ -256,14 +261,25 @@ var kubeVipManager = &cobra.Command{
 		// Set the logging level for all subsequent functions
 		log.SetLogLoggerLevel(log.Level(initConfig.Logging))
 
+		fmt.Println("JAYESH TEST: VIPSubnet : ", initConfig.VIPSubnet)
+		fmt.Println("JAYESH TEST: Address : ", initConfig.Address)
+		fmt.Println("JAYESH TEST: Interface : ", initConfig.Interface)
+		fmt.Println("JAYESH TEST: DDNS : ", initConfig.DDNS)
+		//
 		// Ensure there is an address to generate the CIDR from
-		if initConfig.VIPSubnet == "" && initConfig.Address != "" {
-			initConfig.VIPSubnet, err = GenerateCidrRange(initConfig.Address)
-			if err != nil {
-				log.Error("No interface is specified for kube-vip to bind to")
-				return
-			}
-		}
+		//if initConfig.VIPSubnet == "" && initConfig.Address != "" {
+		//	initConfig.VIPSubnet, err = GenerateCidrRange(initConfig.Address)
+		//	if err != nil {
+		//		log.Error("No interface is specified for kube-vip to bind to")
+		//		return
+		//	}
+		//}
+
+		// Set default CIDR if not specified
+		//if initConfig.VIPSubnet == "" {
+		//	initConfig.VIPSubnet = "32" // Default to /32 for IPv4
+		//	log.Info("using default CIDR /32 for VIP subnet")
+		//}
 
 		// Welome messages
 		log.Info("kube-vip.io", "version", Release.Version, "build", Release.Build)
@@ -446,28 +462,4 @@ func servePrometheusHTTPServer(ctx context.Context, config PrometheusHTTPServerC
 	if err == http.ErrServerClosed {
 		err = nil
 	}
-}
-
-func GenerateCidrRange(address string) (string, error) {
-	var cidrs []string
-
-	addresses := strings.Split(address, ",")
-	for _, a := range addresses {
-		ip := net.ParseIP(a)
-		if ip == nil {
-			ips, err := net.LookupIP(a)
-			if len(ips) == 0 || err != nil {
-				return "", fmt.Errorf("invalid IP address: %s from [%s], %v", a, address, err)
-			}
-			ip = ips[0]
-		}
-
-		if ip.To4() != nil {
-			cidrs = append(cidrs, "32")
-		} else {
-			cidrs = append(cidrs, "128")
-		}
-	}
-
-	return strings.Join(cidrs, ","), nil
 }

@@ -6,6 +6,7 @@ import (
 	log "log/slog"
 
 	"github.com/kube-vip/kube-vip/pkg/kubevip"
+	"github.com/kube-vip/kube-vip/pkg/utils"
 	"github.com/spf13/cobra"
 )
 
@@ -59,7 +60,7 @@ var kubeManifestPod = &cobra.Command{
 
 		// Ensure there is an address to generate the CIDR from
 		if initConfig.VIPSubnet == "" && initConfig.Address != "" {
-			initConfig.VIPSubnet, err = GenerateCidrRange(initConfig.Address)
+			initConfig.VIPSubnet, err = utils.GenerateCidrRange(initConfig.Address)
 			if err != nil {
 				log.Error("config parse", "err", err)
 				return
@@ -92,7 +93,7 @@ var kubeManifestDaemon = &cobra.Command{
 
 		// Ensure there is an address to generate the CIDR from
 		if initConfig.VIPSubnet == "" && initConfig.Address != "" {
-			initConfig.VIPSubnet, err = GenerateCidrRange(initConfig.Address)
+			initConfig.VIPSubnet, err = utils.GenerateCidrRange(initConfig.Address)
 			if err != nil {
 				log.Error("config parse", "err", err)
 				return
@@ -126,7 +127,7 @@ var kubeManifestRbac = &cobra.Command{
 
 		// Ensure there is an address to generate the CIDR from
 		if initConfig.VIPSubnet == "" && initConfig.Address != "" {
-			initConfig.VIPSubnet, err = GenerateCidrRange(initConfig.Address)
+			initConfig.VIPSubnet, err = utils.GenerateCidrRange(initConfig.Address)
 			if err != nil {
 				log.Error("generating VIPSubnet", "err", err)
 				return
