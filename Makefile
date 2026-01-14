@@ -5,7 +5,7 @@ TARGET := kube-vip
 .DEFAULT_GOAL := $(TARGET)
 
 # These will be provided to the target
-VERSION := v1.0.3_spectro
+VERSION := v1.0.3-spectro-1.0
 
 BUILD := `git rev-parse HEAD`
 
