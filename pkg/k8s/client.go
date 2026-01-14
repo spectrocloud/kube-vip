@@ -69,9 +69,10 @@ func restConfig(kubeconfig string, inCluster bool, timeout time.Duration) (*rest
 func findAddressFromRemoteCert(address string) ([]net.IP, error) {
 
 	// TODO: should we care at this point, probably not as we just want the certificates
+	//nolint
 	conf := &tls.Config{
 		MinVersion:         tls.VersionTLS12,
-		InsecureSkipVerify: true, //nolint // #nosec G402
+		InsecureSkipVerify: true, // #nosec G402
 	}
 	d := &net.Dialer{
 		Timeout: time.Duration(3) * time.Second,

@@ -277,12 +277,15 @@ func CreateRule(podIP, vipIP, service, destinationPorts string, ignoreCIDR []str
 
 				switch data[0] {
 				case "tcp":
+					// #nosec G115
 					//nolint:gosec
 					tcpElements = append(tcpElements, nftables.SetElement{Key: binaryutil.BigEndian.PutUint16(uint16(port))})
 				case "udp":
+					// #nosec G115
 					//nolint:gosec
 					udpElements = append(udpElements, nftables.SetElement{Key: binaryutil.BigEndian.PutUint16(uint16(port))})
 				case "sctp":
+					// #nosec G115
 					//nolint:gosec
 					sctpElements = append(sctpElements, nftables.SetElement{Key: binaryutil.BigEndian.PutUint16(uint16(port))})
 				default:

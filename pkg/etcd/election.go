@@ -86,6 +86,7 @@ func RunElection(ctx context.Context, config *LeaderElectionConfig) error {
 	}
 
 	ttl := config.LeaseDurationSeconds
+	// #nosec G115
 	r := &pb.LeaseGrantRequest{TTL: ttl, ID: int64(memberID)} //nolint
 	lease, err := clientv3.RetryLeaseClient(
 		config.EtcdConfig.Client,

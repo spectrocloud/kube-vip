@@ -435,6 +435,7 @@ func tcpServer(egressAddress *string, timeout int, network string) bool {
 		port = ":12346"
 	}
 
+	// #nosec G102
 	listen, err = net.Listen(network, port) //nolint
 	if err != nil {
 		slog.Error(err)

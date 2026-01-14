@@ -14,6 +14,7 @@ func main() {
 
 	if serverType == "tcp" {
 		// Start the TCP echo server
+		// #nosec G102
 		l, err := net.Listen("tcp", ":10001")
 		if err != nil {
 			fmt.Println("ERROR", err)
