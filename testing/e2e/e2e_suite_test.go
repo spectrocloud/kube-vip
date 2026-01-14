@@ -4,63 +4,48 @@
 package e2e_test
 
 import (
-	"fmt"
-	"os/exec"
+	"log"
+	"os"
+	"sync"
 	"testing"
-	"time"
 
-	kindconfigv1alpha4 "sigs.k8s.io/kind/pkg/apis/config/v1alpha4"
-	"sigs.k8s.io/kind/pkg/cluster"
-
+	"github.com/kube-vip/kube-vip/testing/e2e"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/onsi/gomega/gexec"
+)
+
+const (
+	ModeEnv = "TEST_MODE"
+	ModeARP = "arp"
+	ModeRT  = "rt"
+	ModeBGP = "bgp"
+)
+
+var (
+	SOffset   *e2e.SecureOffset
+	ConfigMtx *sync.Mutex
+	Mode      string
 )
 
 func TestE2E(t *testing.T) {
+	mode := os.Getenv(ModeEnv)
+	if mode == "" {
+		Mode = ModeARP
+	} else if mode != ModeARP && mode != ModeRT && mode != ModeBGP {
+		log.Fatal("invalid", "mode", mode)
+		os.Exit(1)
+	} else {
+		Mode = mode
+	}
+	SOffset = e2e.NewOffset(5)
+	ConfigMtx = &sync.Mutex{}
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "E2E Suite")
 }
 
 var _ = SynchronizedBeforeSuite(
 	func() {
-		ensureKindNetwork()
+		e2e.EnsureKindNetwork()
 	},
 	func() {},
 )
-
-func ensureKindNetwork() {
-	By("checking if the Docker \"kind\" network exists")
-	cmd := exec.Command("docker", "inspect", "kind")
-	session, err := gexec.Start(cmd, GinkgoWriter, GinkgoWriter)
-	Expect(err).NotTo(HaveOccurred())
-	Eventually(session).Should(gexec.Exit())
-	if session.ExitCode() == 0 {
-		return
-	}
-
-	By("Docker \"kind\" network was not found. Creating dummy Kind cluster to ensure creation")
-	clusterConfig := kindconfigv1alpha4.Cluster{
-		Networking: kindconfigv1alpha4.Networking{
-			IPFamily: kindconfigv1alpha4.IPv6Family,
-		},
-	}
-
-	provider := cluster.NewProvider(
-		cluster.ProviderWithDocker(),
-	)
-	dummyClusterName := fmt.Sprintf("dummy-cluster-%d", time.Now().Unix())
-	Expect(provider.Create(
-		dummyClusterName,
-		cluster.CreateWithV1Alpha4Config(&clusterConfig),
-	)).To(Succeed())
-
-	By("deleting dummy Kind cluster")
-	Expect(provider.Delete(dummyClusterName, ""))
-
-	By("checking if the Docker \"kind\" network was successfully created")
-	cmd = exec.Command("docker", "inspect", "kind")
-	session, err = gexec.Start(cmd, GinkgoWriter, GinkgoWriter)
-	Expect(err).NotTo(HaveOccurred())
-	Eventually(session).Should(gexec.Exit(0))
-}

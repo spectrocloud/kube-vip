@@ -2,60 +2,60 @@ package vip
 
 import (
 	"context"
-	"net"
+	"fmt"
 	"time"
 
+	log "log/slog"
+
 	"github.com/pkg/errors"
-	log "github.com/sirupsen/logrus"
 )
 
 // DDNSManager will start a dhclient to retrieve and keep the lease for the IP
 // for the dDNSHostName
 // will return the IP allocated
 type DDNSManager interface {
-	Start() (string, error)
+	Start(ctx context.Context) (string, error)
 }
 
 type ddnsManager struct {
-	ctx     context.Context
 	network Network
 }
 
 // NewDDNSManager returns a newly created Dynamic DNS manager
-func NewDDNSManager(ctx context.Context, network Network) DDNSManager {
+func NewDDNSManager(network Network) DDNSManager {
 	return &ddnsManager{
-		ctx:     ctx,
 		network: network,
 	}
 }
 
 // Start will start the dhcpclient routine to keep the lease
 // and return the IP it got from DHCP
-func (ddns *ddnsManager) Start() (string, error) {
-	interfaceName := ddns.network.Interface()
-	iface, err := net.InterfaceByName(interfaceName)
+func (ddns *ddnsManager) Start(ctx context.Context) (string, error) {
+	client, err := NewDHCPClient(ddns.network)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("unable to create DHCP client: %w", err)
 	}
-
-	client := NewDHCPClient(iface, false, "")
 
 	client.WithHostName(ddns.network.DDNSHostName())
 
-	go client.Start()
+	go func() {
+		if err := client.Start(ctx); err != nil {
+			log.Error("[ddns] DHCP client error: %w")
+		}
+	}()
 
 	log.Info("waiting for ip from dhcp")
 	ip, timeout := "", time.After(1*time.Minute)
 
 	select {
-	case <-ddns.ctx.Done():
+	case <-ctx.Done():
 		client.Stop()
 		return "", errors.New("context cancelled")
 	case <-timeout:
 		client.Stop()
 		return "", errors.New("failed to get IP from dhcp for ddns in 1 minutes")
 	case ip = <-client.IPChannel():
-		log.Info("got ip from dhcp: ", ip)
+		log.Info("got address from dhcp", "ip", ip)
 	}
 
 	// lease.FixedAddress.String() could return <nil>
@@ -74,10 +74,10 @@ func (ddns *ddnsManager) Start() (string, error) {
 				client.Stop()
 				return
 			case ip := <-client.IPChannel():
-				log.Info("got ip from dhcp: ", ip)
+				log.Info("got address from dhcp", "ip", ip)
 			}
 		}
-	}(ddns.ctx)
+	}(ctx)
 
 	return ip, nil
 }

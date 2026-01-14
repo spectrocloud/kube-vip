@@ -11,29 +11,36 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v6
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
       - name: Login to DockerHub
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Login to Github Packages
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate Metadata
+        uses: docker/metadata-action@v5.10.0
+        id: metadata
+        with:
+          labels: |
+            org.opencontainers.image.documentation=https://kube-vip.io/docs/
       - name: Build and push main branch
         id: docker_build
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm/v7,linux/arm64,linux/ppc64le,linux/s390x
           push: ${{ github.event_name != 'pull_request' }}
+          labels: ${{ steps.metadata.outputs.labels }}
           tags: >-
             plndr/kube-vip:${{ github.ref_name }},
             plndr/kube-vip:latest,
@@ -41,12 +48,13 @@ jobs:
             ghcr.io/kube-vip/kube-vip:latest
       - name: Build iptables version and push main branch
         id: docker_build_iptables
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: Dockerfile_iptables
           platforms: linux/amd64,linux/arm/v7,linux/arm64,linux/ppc64le,linux/s390x
           push: ${{ github.event_name != 'pull_request' }}
+          labels: ${{ steps.metadata.outputs.labels }}
           tags: >-
             plndr/kube-vip-iptables:${{ github.ref_name }},
             plndr/kube-vip-iptables:latest,

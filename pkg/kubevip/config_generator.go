@@ -2,16 +2,176 @@ package kubevip
 
 import (
 	"fmt"
+	"log"
 	"strconv"
 
+	"github.com/google/go-containerregistry/pkg/name"
 	appv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	applyCoreV1 "k8s.io/client-go/applyconfigurations/core/v1"
+	applyMetaV1 "k8s.io/client-go/applyconfigurations/meta/v1"
+	applyRbacV1 "k8s.io/client-go/applyconfigurations/rbac/v1"
 	"sigs.k8s.io/yaml"
 )
 
+// TransformApplyObjectToManifest transforms an apply object into a normal Kubernetes manifest
+func TransformApplyObjectToManifest(applyObject interface{}) string {
+	// Convert the apply object to an unstructured object
+	unstructuredObj := &unstructured.Unstructured{}
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(applyConfigToMap(applyObject), unstructuredObj)
+	if err != nil {
+		log.Fatalf("Error converting apply object to unstructured: %v", err)
+	}
+
+	// Marshal the unstructured object into YAML
+	yamlData, err := yaml.Marshal(unstructuredObj.Object)
+	if err != nil {
+		log.Fatalf("Error marshaling unstructured object to YAML: %v", err)
+	}
+
+	return string(yamlData)
+}
+
+// Helper function to convert apply configuration to a map
+func applyConfigToMap(applyConfig interface{}) map[string]interface{} {
+	data, err := runtime.DefaultUnstructuredConverter.ToUnstructured(applyConfig)
+	if err != nil {
+		log.Fatalf("Error converting apply configuration to map: %v", err)
+	}
+	return data
+}
+
+// GenerateSA will create the service account for kube-vip
+func GenerateSA(c *Config) *applyCoreV1.ServiceAccountApplyConfiguration {
+	kind := "ServiceAccount"
+	name := "kube-vip"
+	var namespace string
+	if c.ServiceNamespace != "" {
+		namespace = c.ServiceNamespace
+	} else {
+		namespace = metav1.NamespaceSystem
+	}
+	newManifest := &applyCoreV1.ServiceAccountApplyConfiguration{
+		TypeMetaApplyConfiguration: applyMetaV1.TypeMetaApplyConfiguration{APIVersion: &corev1.SchemeGroupVersion.Version, Kind: &kind},
+		ObjectMetaApplyConfiguration: &applyMetaV1.ObjectMetaApplyConfiguration{
+			Name:      &name,
+			Namespace: &namespace,
+		},
+	}
+	return newManifest
+}
+
+// GenerateCR will generate the Cluster role for kube-vip
+func GenerateRole(c *Config, role bool) *applyRbacV1.RoleApplyConfiguration {
+	var kind, name string
+	var namespace *string
+	if role {
+		kind = "Role"
+		name = "kube-vip"
+		if c.ServiceNamespace != "" {
+			namespace = &c.ServiceNamespace
+		} else {
+			// If the namespace is empty then we need to set it to the system namespace
+			copiedNamespace := metav1.NamespaceSystem
+			namespace = &copiedNamespace
+		}
+
+	} else {
+		kind = "ClusterRole"
+		name = "system:kube-vip-role"
+
+	}
+	apiVersion := "rbac.authorization.k8s.io/v1"
+	newManifest := &applyRbacV1.RoleApplyConfiguration{
+		TypeMetaApplyConfiguration: applyMetaV1.TypeMetaApplyConfiguration{APIVersion: &apiVersion, Kind: &kind},
+		ObjectMetaApplyConfiguration: &applyMetaV1.ObjectMetaApplyConfiguration{
+			Name:      &name,
+			Namespace: namespace,
+		},
+		Rules: []applyRbacV1.PolicyRuleApplyConfiguration{
+			{
+				APIGroups: []string{""},
+				Resources: []string{"services/status"},
+				Verbs:     []string{"update"},
+			},
+			{
+				APIGroups: []string{""},
+				Resources: []string{"services", "endpoints"},
+				Verbs:     []string{"list", "get", "watch", "update"},
+			},
+			{
+				APIGroups: []string{""},
+				Resources: []string{"nodes"},
+				Verbs:     []string{"list", "get", "watch", "update", "patch"},
+			},
+			{
+				APIGroups: []string{"coordination.k8s.io"},
+				Resources: []string{"leases"},
+				Verbs:     []string{"list", "get", "watch", "update", "create"},
+			},
+			{
+				APIGroups: []string{"discovery.k8s.io"},
+				Resources: []string{"endpointslices"},
+				Verbs:     []string{"list", "get", "watch", "update"},
+			},
+			{
+				APIGroups: []string{""},
+				Resources: []string{"pods"},
+				Verbs:     []string{"list"},
+			},
+		},
+	}
+	return newManifest
+}
+
+// GenerateCRB will generate the clusterRoleBinding or rolebinding
+func GenerateRoleBinding(rolebinding bool, saCfg *applyCoreV1.ServiceAccountApplyConfiguration, crCfg *applyRbacV1.RoleApplyConfiguration) *applyRbacV1.RoleBindingApplyConfiguration {
+	apiVersion := "rbac.authorization.k8s.io/v1"
+	apiGroup := "rbac.authorization.k8s.io"
+	var kind, bindName string
+	var namespace, objectNamespace *string
+	if rolebinding {
+		kind = "RoleBinding"
+		bindName = "kube-vip"
+		namespace = nil
+		objectNamespace = saCfg.Namespace
+	} else {
+		kind = "ClusterRoleBinding"
+		bindName = "system:kube-vip-binding"
+		namespace = saCfg.Namespace
+		objectNamespace = nil
+	}
+	newManifest := &applyRbacV1.RoleBindingApplyConfiguration{
+		TypeMetaApplyConfiguration: applyMetaV1.TypeMetaApplyConfiguration{APIVersion: &apiVersion, Kind: &kind},
+		ObjectMetaApplyConfiguration: &applyMetaV1.ObjectMetaApplyConfiguration{
+			Name:      &bindName,
+			Namespace: objectNamespace,
+		},
+		RoleRef: &applyRbacV1.RoleRefApplyConfiguration{
+			APIGroup: &apiGroup,
+			Kind:     crCfg.Kind,
+			Name:     crCfg.Name,
+		},
+		Subjects: []applyRbacV1.SubjectApplyConfiguration{
+			{
+				Kind:      saCfg.Kind,
+				Name:      saCfg.Name,
+				Namespace: namespace,
+			},
+		},
+	}
+	return newManifest
+}
+
 // generatePodSpec will take a kube-vip config and generate a Pod spec
-func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod {
+func generatePodSpec(c *Config, image, imageVersion string, inCluster bool) *corev1.Pod {
+	imageRef, err := name.NewTag(image, name.WeakValidation, name.WithDefaultTag(imageVersion))
+	if err != nil {
+		panic(fmt.Errorf("cannot parse %q: %w", image, err))
+	}
 	command := "manager"
 
 	// Determine where the pods should be living (for multi-tenancy)
@@ -32,6 +192,14 @@ func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod
 			Name:  port,
 			Value: fmt.Sprintf("%d", c.Port),
 		},
+		{
+			Name: nodeName,
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{
+					FieldPath: "spec.nodeName",
+				},
+			},
+		},
 	}
 
 	// If we're specifically saying which interface to use then add it to the manifest
@@ -41,6 +209,13 @@ func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod
 				Name:  vipInterface,
 				Value: c.Interface,
 			},
+		}
+		// specify if global scope should be set when using the lo interface
+		if c.LoInterfaceGlobalScope {
+			iface = append(iface, corev1.EnvVar{
+				Name:  vipInterfaceLoGlobal,
+				Value: strconv.FormatBool(c.LoInterfaceGlobalScope),
+			})
 		}
 		newEnvironment = append(newEnvironment, iface...)
 	}
@@ -57,18 +232,6 @@ func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod
 		newEnvironment = append(newEnvironment, svcInterface...)
 	}
 
-	// If a CIDR is used add it to the manifest
-	if c.VIPCIDR != "" {
-		// build environment variables
-		cidr := []corev1.EnvVar{
-			{
-				Name:  vipCidr,
-				Value: c.VIPCIDR,
-			},
-		}
-		newEnvironment = append(newEnvironment, cidr...)
-	}
-
 	// If a subnet is required for the VIP
 	if c.VIPSubnet != "" {
 		// build environment variables
@@ -79,6 +242,28 @@ func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod
 			},
 		}
 		newEnvironment = append(newEnvironment, cidr...)
+	}
+
+	if c.DNSMode != "" {
+		// build environment variables
+		dnsModeSelector := []corev1.EnvVar{
+			{
+				Name:  dnsMode,
+				Value: c.DNSMode,
+			},
+		}
+		newEnvironment = append(newEnvironment, dnsModeSelector...)
+	}
+
+	if c.DHCPMode != "" {
+		// build environment variables
+		dhcpModeSelector := []corev1.EnvVar{
+			{
+				Name:  dhcpMode,
+				Value: c.DHCPMode,
+			},
+		}
+		newEnvironment = append(newEnvironment, dhcpModeSelector...)
 	}
 
 	// If we're doing the hybrid mode
@@ -92,10 +277,18 @@ func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod
 				Name:  cpNamespace,
 				Value: c.Namespace,
 			},
-			{
+		}
+		if c.DDNS {
+			cp = append(cp, corev1.EnvVar{
 				Name:  vipDdns,
 				Value: strconv.FormatBool(c.DDNS),
-			},
+			})
+		}
+		if c.DetectControlPlane {
+			cp = append(cp, corev1.EnvVar{
+				Name:  cpDetect,
+				Value: strconv.FormatBool(c.DetectControlPlane),
+			})
 		}
 		newEnvironment = append(newEnvironment, cp...)
 	}
@@ -208,40 +401,6 @@ func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod
 
 	}
 
-	// If we're specifying a configuration
-	if c.ProviderConfig != "" {
-		provider := []corev1.EnvVar{
-			{
-				Name:  providerConfig,
-				Value: c.ProviderConfig,
-			},
-		}
-		newEnvironment = append(newEnvironment, provider...)
-	}
-
-	// If Equinix Metal is enabled then add it to the manifest
-	if c.EnableMetal {
-		packet := []corev1.EnvVar{
-			{
-				Name:  vipPacket,
-				Value: strconv.FormatBool(c.EnableMetal),
-			},
-			{
-				Name:  vipPacketProject,
-				Value: c.MetalProject,
-			},
-			{
-				Name:  vipPacketProjectID,
-				Value: c.MetalProjectID,
-			},
-			{
-				Name:  "PACKET_AUTH_TOKEN",
-				Value: c.MetalAPIKey,
-			},
-		}
-		newEnvironment = append(newEnvironment, packet...)
-	}
-
 	// Detect and enable wireguard mode
 	if c.EnableWireguard {
 		wireguard := []corev1.EnvVar{
@@ -263,8 +422,7 @@ func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod
 		}
 		newEnvironment = append(newEnvironment, routingtable...)
 	}
-
-	// If BGP, but we're not using Equinix Metal
+	// If BGP
 	if c.EnableBGP {
 		bgp := []corev1.EnvVar{
 			{
@@ -274,8 +432,9 @@ func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod
 		}
 		newEnvironment = append(newEnvironment, bgp...)
 	}
-	// If BGP, but we're not using Equinix Metal
-	if c.EnableBGP && !c.EnableMetal {
+
+	// If BGP
+	if c.EnableBGP {
 		bgpConfig := []corev1.EnvVar{
 			{
 				Name:  bgpRouterID,
@@ -369,14 +528,70 @@ func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod
 		})
 	}
 
-	if c.PrometheusHTTPServer != "" {
-		prometheus := []corev1.EnvVar{
+	prometheus := []corev1.EnvVar{
+		{
+			Name:  prometheusServer,
+			Value: c.PrometheusHTTPServer,
+		},
+	}
+	newEnvironment = append(newEnvironment, prometheus...)
+
+	if c.EnableEndpoints {
+		newEnvironment = append(newEnvironment, corev1.EnvVar{
+			Name:  enableEndpoints,
+			Value: strconv.FormatBool(c.EnableEndpoints),
+		})
+	}
+
+	if c.DisableServiceUpdates {
+		// Disable service updates
+		disServiceUpdates := []corev1.EnvVar{
 			{
-				Name:  prometheusServer,
-				Value: c.PrometheusHTTPServer,
+				Name:  disableServiceUpdates,
+				Value: strconv.FormatBool(c.DisableServiceUpdates),
 			},
 		}
-		newEnvironment = append(newEnvironment, prometheus...)
+		newEnvironment = append(newEnvironment, disServiceUpdates...)
+	}
+
+	if c.MirrorDestInterface != "" {
+		mdif := []corev1.EnvVar{
+			{
+				Name:  mirrorDestInterface,
+				Value: c.MirrorDestInterface,
+			},
+		}
+		newEnvironment = append(newEnvironment, mdif...)
+	}
+
+	if c.HealthCheckPort != 0 {
+		healthPort := []corev1.EnvVar{
+			{
+				Name:  healthCheckPort,
+				Value: fmt.Sprintf("%d", c.HealthCheckPort),
+			},
+		}
+		newEnvironment = append(newEnvironment, healthPort...)
+	}
+
+	var securityContext *corev1.SecurityContext
+	if c.LoadBalancerForwardingMethod == "masquerade" {
+		var privileged = true
+		securityContext = &corev1.SecurityContext{
+			Privileged: &privileged,
+		}
+	} else {
+		securityContext = &corev1.SecurityContext{
+			Capabilities: &corev1.Capabilities{
+				Add: []corev1.Capability{
+					"NET_ADMIN",
+					"NET_RAW",
+				},
+				Drop: []corev1.Capability{
+					"ALL",
+				},
+			},
+		}
 	}
 
 	newManifest := &corev1.Pod{
@@ -392,16 +607,9 @@ func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod
 			Containers: []corev1.Container{
 				{
 					Name:            "kube-vip",
-					Image:           fmt.Sprintf("ghcr.io/kube-vip/kube-vip:%s", imageVersion),
-					ImagePullPolicy: corev1.PullAlways,
-					SecurityContext: &corev1.SecurityContext{
-						Capabilities: &corev1.Capabilities{
-							Add: []corev1.Capability{
-								"NET_ADMIN",
-								"NET_RAW",
-							},
-						},
-					},
+					Image:           imageRef.Name(),
+					ImagePullPolicy: corev1.PullIfNotPresent,
+					SecurityContext: securityContext,
 					Args: []string{
 						command,
 					},
@@ -426,7 +634,7 @@ func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod
 			Name: "kubeconfig",
 			VolumeSource: corev1.VolumeSource{
 				HostPath: &corev1.HostPathVolumeSource{
-					Path: "/etc/kubernetes/admin.conf",
+					Path: c.K8sConfigFile,
 				},
 			},
 		}
@@ -440,38 +648,18 @@ func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod
 		newManifest.Spec.HostAliases = append(newManifest.Spec.HostAliases, hostAlias)
 	}
 
-	if c.ProviderConfig != "" {
-		providerConfigMount := corev1.VolumeMount{
-			Name:      "cloud-sa-volume",
-			MountPath: "/etc/cloud-sa",
-			ReadOnly:  true,
-		}
-		newManifest.Spec.Containers[0].VolumeMounts = append(newManifest.Spec.Containers[0].VolumeMounts, providerConfigMount)
-
-		providerConfigVolume := corev1.Volume{
-			Name: "cloud-sa-volume",
-			VolumeSource: corev1.VolumeSource{
-				Secret: &corev1.SecretVolumeSource{
-					SecretName: "metal-cloud-config",
-				},
-			},
-		}
-		newManifest.Spec.Volumes = append(newManifest.Spec.Volumes, providerConfigVolume)
-
-	}
-
 	return newManifest
 }
 
 // GeneratePodManifestFromConfig will take a kube-vip config and generate a manifest
-func GeneratePodManifestFromConfig(c *Config, imageVersion string, inCluster bool) string {
-	newManifest := generatePodSpec(c, imageVersion, inCluster)
+func GeneratePodManifestFromConfig(c *Config, image, imageVersion string, inCluster bool) string {
+	newManifest := generatePodSpec(c, image, imageVersion, inCluster)
 	b, _ := yaml.Marshal(newManifest)
 	return string(b)
 }
 
 // GenerateDaemonsetManifestFromConfig will take a kube-vip config and generate a manifest
-func GenerateDaemonsetManifestFromConfig(c *Config, imageVersion string, inCluster, taint bool) string {
+func GenerateDaemonsetManifestFromConfig(c *Config, image, imageVersion string, inCluster, taint bool) string {
 	// Determine where the pod should be deployed
 	var namespace string
 	if c.ServiceNamespace != "" {
@@ -480,7 +668,7 @@ func GenerateDaemonsetManifestFromConfig(c *Config, imageVersion string, inClust
 		namespace = metav1.NamespaceSystem
 	}
 
-	podSpec := generatePodSpec(c, imageVersion, inCluster).Spec
+	podSpec := generatePodSpec(c, image, imageVersion, inCluster).Spec
 	newManifest := &appv1.DaemonSet{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "DaemonSet",
@@ -547,6 +735,15 @@ func GenerateDaemonsetManifestFromConfig(c *Config, imageVersion string, inClust
 			},
 		}
 	}
+
+	// TODO: we don't check error return values for any of these marshall/unmarshall functions
 	b, _ := yaml.Marshal(newManifest)
+
+	// This additional step is required to be able to delete a section of the manifest being generated
+	m := make(map[string]interface{})
+	_ = yaml.Unmarshal(b, &m)
+	delete(m, "status")
+
+	b, _ = yaml.Marshal(m)
 	return string(b)
 }

@@ -5,7 +5,7 @@ TARGET := kube-vip
 .DEFAULT_GOAL := $(TARGET)
 
 # These will be provided to the target
-VERSION := v0.6.3_spectro_1.4
+VERSION := v1.0.3_spectro
 
 BUILD := `git rev-parse HEAD`
 
@@ -22,7 +22,7 @@ FIPS_ENABLE ?= ""
 BUILD_ARGS = --build-arg CRYPTO_LIB=${FIPS_ENABLE} --build-arg GOLANG_VERSION=${GOLANG_VERSION}
 PLATFORM ?= "linux/amd64,linux/arm64"
 
-.PHONY: all build clean install uninstall fmt simplify check run e2e-tests
+.PHONY: all build clean install uninstall simplify check run e2e-tests
 
 all: check install
 
@@ -42,9 +42,6 @@ install:
 uninstall: clean
 	@rm -f $$(which ${TARGET})
 
-fmt:
-	@gofmt -l -w ./...
-
 demo:
 	@cd demo
 	@docker buildx build  --platform linux/amd64,linux/arm64,linux/arm/v7,linux/ppc64le,linux/s390x --push -t $(REPOSITORY)/$(TARGET):$(DOCKERTAG) .
@@ -62,6 +59,11 @@ dockerx86Dev:
 dockerx86Iptables:
 	@-rm ./kube-vip
 	@docker buildx build  --platform linux/amd64 -f ./Dockerfile_iptables --push -t $(REPOSITORY)/$(TARGET):dev .
+	@echo New single x86 Architecture Docker image created
+
+dockerx86IptablesLocal:
+	@-rm ./kube-vip
+	@docker buildx build  --platform linux/amd64 -f ./Dockerfile_iptables -t $(REPOSITORY)/$(TARGET):$(DOCKERTAG) .
 	@echo New single x86 Architecture Docker image created
 
 dockerx86:
@@ -109,12 +111,12 @@ dockerLocal:
 	@echo New Multi Architecture Docker image created
 
 simplify:
-	@gofmt -s -l -w ./...
+	@gofmt -s -l -w *.go pkg cmd
 
 check:
 	go mod tidy
 	test -z "$(git status --porcelain)"
-	test -z $(shell gofmt -l main.go | tee /dev/stderr) || echo "[WARN] Fix formatting issues with 'make fmt'"
+	test -z $(shell gofmt -l *.go pkg cmd) || echo "[WARN] Fix formatting issues with 'make simplify'"
 	golangci-lint run
 	go vet ./...
 
@@ -124,20 +126,70 @@ run: install
 manifests:
 	@make build
 	@mkdir -p ./docs/manifests/$(VERSION)/
-	@./kube-vip manifest pod --interface eth0 --vip 192.168.0.1 --arp --leaderElection --controlplane --services > ./docs/manifests/$(VERSION)/kube-vip-arp.yaml
-	@./kube-vip manifest pod --interface eth0 --vip 192.168.0.1 --arp --leaderElection --controlplane --services --enableLoadBalancer > ./docs/manifests/$(VERSION)/kube-vip-arp-lb.yaml
-	@./kube-vip manifest pod --interface eth0 --vip 192.168.0.1 --bgp --controlplane --services > ./docs/manifests/$(VERSION)/kube-vip-bgp.yaml
-	@./kube-vip manifest daemonset --interface eth0 --vip 192.168.0.1 --arp --leaderElection --controlplane --services --inCluster > ./docs/manifests/$(VERSION)/kube-vip-arp-ds.yaml
-	@./kube-vip manifest daemonset --interface eth0 --vip 192.168.0.1 --arp --leaderElection --controlplane --services --inCluster --enableLoadBalancer > ./docs/manifests/$(VERSION)/kube-vip-arp-ds-lb.yaml
-	@./kube-vip manifest daemonset --interface eth0 --vip 192.168.0.1 --bgp --leaderElection --controlplane --services --inCluster > ./docs/manifests/$(VERSION)/kube-vip-bgp-ds.yaml
-	@./kube-vip manifest daemonset --interface eth0 --vip 192.168.0.1 --bgp --leaderElection --controlplane --services --inCluster --provider-config /etc/cloud-sa/cloud-sa.json > ./docs/manifests/$(VERSION)/kube-vip-bgp-em-ds.yaml
+	@./kube-vip manifest pod --interface eth0 --vip 192.168.0.1 --image "$(REPOSITORY)/$(TARGET):$(DOCKERTAG)" --arp --leaderElection --controlplane --services > ./docs/manifests/$(VERSION)/kube-vip-arp.yaml
+	@./kube-vip manifest pod --interface eth0 --vip 192.168.0.1 --image "$(REPOSITORY)/$(TARGET):$(DOCKERTAG)" --arp --leaderElection --controlplane --services --enableLoadBalancer > ./docs/manifests/$(VERSION)/kube-vip-arp-lb.yaml
+	@./kube-vip manifest pod --interface eth0 --vip 192.168.0.1 --image "$(REPOSITORY)/$(TARGET):$(DOCKERTAG)" --bgp --controlplane --services > ./docs/manifests/$(VERSION)/kube-vip-bgp.yaml
+	@./kube-vip manifest daemonset --interface eth0 --vip 192.168.0.1 --image "$(REPOSITORY)/$(TARGET):$(DOCKERTAG)" --arp --leaderElection --controlplane --services --inCluster > ./docs/manifests/$(VERSION)/kube-vip-arp-ds.yaml
+	@./kube-vip manifest daemonset --interface eth0 --vip 192.168.0.1 --image "$(REPOSITORY)/$(TARGET):$(DOCKERTAG)" --arp --leaderElection --controlplane --services --inCluster --enableLoadBalancer > ./docs/manifests/$(VERSION)/kube-vip-arp-ds-lb.yaml
+	@./kube-vip manifest daemonset --interface eth0 --vip 192.168.0.1 --image "$(REPOSITORY)/$(TARGET):$(DOCKERTAG)" --bgp --leaderElection --controlplane --services --inCluster > ./docs/manifests/$(VERSION)/kube-vip-bgp-ds.yaml
+	@./kube-vip manifest daemonset --interface eth0 --vip 192.168.0.1 --image "$(REPOSITORY)/$(TARGET):$(DOCKERTAG)" --bgp --leaderElection --controlplane --services --inCluster > ./docs/manifests/$(VERSION)/kube-vip-bgp-em-ds.yaml
 	@-rm ./kube-vip
+
+manifest-test:
+	docker run $(REPOSITORY)/$(TARGET):$(DOCKERTAG) manifest pod --interface eth0 --vip 192.168.0.1 --image "$(REPOSITORY)/$(TARGET):$(DOCKERTAG)" --arp --leaderElection --controlplane --services
+	docker run $(REPOSITORY)/$(TARGET):$(DOCKERTAG) manifest pod --interface eth0 --vip 192.168.0.1 --image "$(REPOSITORY)/$(TARGET):$(DOCKERTAG)" --arp --leaderElection --controlplane --services --enableLoadBalancer
+	docker run $(REPOSITORY)/$(TARGET):$(DOCKERTAG) manifest pod --interface eth0 --vip 192.168.0.1 --image "$(REPOSITORY)/$(TARGET):$(DOCKERTAG)" --bgp --controlplane --services
+	docker run $(REPOSITORY)/$(TARGET):$(DOCKERTAG) manifest daemonset --interface eth0 --vip 192.168.0.1 --image "$(REPOSITORY)/$(TARGET):$(DOCKERTAG)" --arp --leaderElection --controlplane --services --inCluster
+	docker run $(REPOSITORY)/$(TARGET):$(DOCKERTAG) manifest daemonset --interface eth0 --vip 192.168.0.1 --image "$(REPOSITORY)/$(TARGET):$(DOCKERTAG)" --arp --leaderElection --controlplane --services --inCluster --enableLoadBalancer
+	docker run $(REPOSITORY)/$(TARGET):$(DOCKERTAG) manifest daemonset --interface eth0 --vip 192.168.0.1 --image "$(REPOSITORY)/$(TARGET):$(DOCKERTAG)" --bgp --leaderElection --controlplane --services --inCluster
 
 unit-tests:
 	go test ./...
 
+integration-tests:
+	go test -tags=integration,e2e -v ./pkg/etcd
+
 e2e-tests:
-	E2E_IMAGE_PATH=$(REPOSITORY)/$(TARGET):$(DOCKERTAG) go run github.com/onsi/ginkgo/v2/ginkgo --tags=e2e -v -p ./testing/e2e
+	GOMAXPROCS=4 E2E_IMAGE_PATH=$(REPOSITORY)/$(TARGET):$(DOCKERTAG) go run github.com/onsi/ginkgo/v2/ginkgo --tags=e2e -v -p ./testing/e2e ./testing/e2e/etcd
+
+e2e-tests129-arp:
+	GOMAXPROCS=4 TEST_MODE=arp V129=true K8S_IMAGE_PATH=kindest/node:v1.29.0 E2E_IMAGE_PATH=$(REPOSITORY)/$(TARGET):$(DOCKERTAG) go run github.com/onsi/ginkgo/v2/ginkgo --tags=e2e -v -p ./testing/e2e
+
+e2e-tests129-rt:
+	GOMAXPROCS=4 TEST_MODE=rt V129=true K8S_IMAGE_PATH=kindest/node:v1.29.0 E2E_IMAGE_PATH=$(REPOSITORY)/$(TARGET):$(DOCKERTAG) go run github.com/onsi/ginkgo/v2/ginkgo --tags=e2e -v -p ./testing/e2e
+
+e2e-tests129-bgp:
+	GOMAXPROCS=4 TEST_MODE=bgp V129=true K8S_IMAGE_PATH=kindest/node:v1.29.0 E2E_IMAGE_PATH=$(REPOSITORY)/$(TARGET):$(DOCKERTAG) go run github.com/onsi/ginkgo/v2/ginkgo --tags=e2e -v -p ./testing/e2e
+
+e2e-tests129: e2e-tests129-arp e2e-tests129-rt e2e-tests129-bgp
 
 service-tests:
-	E2E_IMAGE_PATH=$(REPOSITORY)/$(TARGET):$(DOCKERTAG) go run ./testing/e2e/services -Services
+	E2E_IMAGE_PATH=$(REPOSITORY)/$(TARGET):$(DOCKERTAG) go run ./testing/services -Services -simple -deployments -leaderActive -leaderFailover -localDeploy -egress -egressIPv6 -dualStack
+
+trivy: dockerx86ActionIPTables
+	docker run -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.47.0 \
+		image  \
+		--format table \
+		--exit-code  1 \
+		--ignore-unfixed \
+		--vuln-type  'os,library' \
+		--severity  'CRITICAL,HIGH'  \
+		$(REPOSITORY)/$(TARGET):action
+
+kind-quick:
+	echo "Standing up your cluster"
+	kind create cluster --config ./testing/kind/kind.yaml --name kube-vip
+	kubectl apply -f https://kube-vip.io/manifests/rbac.yaml
+	kubectl create configmap --namespace kube-system kubevip --from-literal range-global=172.18.100.10-172.18.100.30
+	kubectl apply -f https://raw.githubusercontent.com/kube-vip/kube-vip-cloud-provider/main/manifest/kube-vip-cloud-controller.yaml
+	kind load docker-image --name kube-vip $(REPOSITORY)/$(TARGET):$(DOCKERTAG)
+	docker run --network host --rm $(REPOSITORY)/$(TARGET):$(DOCKERTAG) manifest daemonset --services --inCluster --image "$(REPOSITORY)/$(TARGET):$(DOCKERTAG)" --arp --servicesElection --interface  eth0 | kubectl apply -f -
+
+kind-reload:
+	kind load docker-image $(REPOSITORY)/$(TARGET):$(DOCKERTAG) --name services
+	kubectl rollout restart -n kube-system daemonset/kube-vip-ds
+
+get-gobgp:
+	mkdir -p bin
+	wget -nc --directory-prefix=bin https://github.com/osrg/gobgp/releases/download/v3.37.0/gobgp_3.37.0_linux_amd64.tar.gz
+	tar -xvzf bin/gobgp_3.37.0_linux_amd64.tar.gz -C bin

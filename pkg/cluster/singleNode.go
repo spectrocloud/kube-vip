@@ -3,8 +3,7 @@ package cluster
 import (
 	"context"
 
-	"github.com/packethost/packngo"
-	log "github.com/sirupsen/logrus"
+	log "log/slog"
 
 	"github.com/kube-vip/kube-vip/pkg/bgp"
 	"github.com/kube-vip/kube-vip/pkg/kubevip"
@@ -16,58 +15,62 @@ func (cluster *Cluster) StartSingleNode(c *kubevip.Config, disableVIP bool) erro
 	// Start kube-vip as a single node server
 
 	// TODO - Split all this code out as a separate function
-	log.Infoln("Starting kube-vip as a single node cluster")
+	log.Info("Starting kube-vip as a single node cluster")
 
 	log.Info("This node is assuming leadership of the cluster")
 
 	cluster.stop = make(chan bool, 1)
 	cluster.completed = make(chan bool, 1)
 
-	if !disableVIP {
-		err := cluster.Network.DeleteIP()
-		if err != nil {
-			log.Warnf("Attempted to clean existing VIP => %v", err)
+	for i := range cluster.Network {
+		if !disableVIP {
+			deleted, err := cluster.Network[i].DeleteIP()
+			if err != nil {
+				log.Warn("Attempted to clean existing VIP", "err", err)
+			}
+			if deleted {
+				log.Info("deleted address", "IP", cluster.Network[i].IP(), "interface", cluster.Network[i].Interface())
+			}
+
+			// Normal VIP addition for single node, use skipDAD=false for normal DAD process
+			_, err = cluster.Network[i].AddIP(false, false)
+			if err != nil {
+				log.Warn(err.Error())
+			}
+
 		}
 
-		err = cluster.Network.AddIP()
-		if err != nil {
-			log.Warnf("%v", err)
-		}
-
-	}
-
-	if c.EnableARP {
-		// Gratuitous ARP, will broadcast to new MAC <-> IP
-		err := vip.ARPSendGratuitous(cluster.Network.IP(), c.Interface)
-		if err != nil {
-			log.Warnf("%v", err)
+		if c.EnableARP {
+			// Gratuitous ARP, will broadcast to new MAC <-> IP
+			err := vip.ARPSendGratuitous(cluster.Network[i].IP(), c.Interface)
+			if err != nil {
+				log.Warn(err.Error())
+			}
 		}
 	}
 
 	go func() {
-		//nolint
-		for {
-			select {
-			case <-cluster.stop:
+		<-cluster.stop
 
-				if !disableVIP {
-
-					log.Info("[VIP] Releasing the Virtual IP")
-					err := cluster.Network.DeleteIP()
-					if err != nil {
-						log.Warnf("%v", err)
-					}
+		if !disableVIP {
+			for i := range cluster.Network {
+				log.Info("[VIP] Releasing the VIP", "address", cluster.Network[i].IP())
+				deleted, err := cluster.Network[i].DeleteIP()
+				if err != nil {
+					log.Warn(err.Error())
 				}
-				close(cluster.completed)
-				return
+				if deleted {
+					log.Info("deleted address", "IP", cluster.Network[i].IP(), "interface", cluster.Network[i].Interface())
+				}
 			}
 		}
+		close(cluster.completed)
 	}()
-	log.Infoln("Started Load Balancer and Virtual IP")
+	log.Info("Started Load Balancer and Virtual IP")
 	return nil
 }
 
-func (cluster *Cluster) StartVipService(c *kubevip.Config, sm *Manager, bgp *bgp.Server, packetClient *packngo.Client) error {
+func (cluster *Cluster) StartVipService(c *kubevip.Config, sm *Manager, bgp *bgp.Server) error {
 	// use a Go context so we can tell the arp loop code when we
 	// want to step down
 	ctxArp, cancelArp := context.WithCancel(context.Background())
@@ -78,5 +81,5 @@ func (cluster *Cluster) StartVipService(c *kubevip.Config, sm *Manager, bgp *bgp
 	ctxDNS, cancelDNS := context.WithCancel(context.Background())
 	defer cancelDNS()
 
-	return cluster.vipService(ctxArp, ctxDNS, c, sm, bgp, packetClient)
+	return cluster.vipService(ctxArp, ctxDNS, c, sm, bgp, nil)
 }

@@ -4,7 +4,9 @@ import (
 	"context"
 	"time"
 
-	log "github.com/sirupsen/logrus"
+	log "log/slog"
+
+	"github.com/kube-vip/kube-vip/pkg/utils"
 )
 
 // IPUpdater is the interface to plug dns updaters
@@ -29,23 +31,29 @@ func (d *ipUpdater) Run(ctx context.Context) {
 		for {
 			select {
 			case <-ctx.Done():
-				log.Infof("stop ipUpdater")
+				log.Info("stop ipUpdater")
 				return
 			default:
-				ip, err := lookupHost(d.vip.DNSName())
+				mode := "ipv4"
+				if utils.IsIPv6(d.vip.IP()) {
+					mode = "ipv6"
+				}
+
+				ip, err := utils.LookupHost(d.vip.DNSName(), mode, true)
 				if err != nil {
-					log.Warnf("cannot lookup %s: %v", d.vip.DNSName(), err)
+					log.Warn("cannot lookup", "name", d.vip.DNSName(), "err", err)
 					// fallback to renewing the existing IP
-					ip = d.vip.IP()
+					ip = []string{d.vip.IP()}
 				}
 
-				log.Infof("setting %s as an IP", ip)
-				if err := d.vip.SetIP(ip); err != nil {
-					log.Errorf("setting %s as an IP: %v", ip, err)
+				log.Debug("(ipUpdater) setting IP", "address", ip)
+				if err := d.vip.SetIP(ip[0]); err != nil {
+					log.Error("setting IP", "address", ip, "err", err)
 				}
 
-				if err := d.vip.AddIP(); err != nil {
-					log.Errorf("error adding virtual IP: %v", err)
+				// Normal VIP addition for DNS, use skipDAD=false for normal DAD process
+				if _, err := d.vip.AddIP(true, false); err != nil {
+					log.Error("error adding virtual IP", "err", err)
 				}
 
 			}

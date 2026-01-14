@@ -3,9 +3,11 @@ package cluster
 import (
 	"sync"
 
-	log "github.com/sirupsen/logrus"
+	log "log/slog"
 
+	"github.com/kube-vip/kube-vip/pkg/arp"
 	"github.com/kube-vip/kube-vip/pkg/kubevip"
+	"github.com/kube-vip/kube-vip/pkg/networkinterface"
 	"github.com/kube-vip/kube-vip/pkg/vip"
 )
 
@@ -14,44 +16,54 @@ type Cluster struct {
 	stop      chan bool
 	completed chan bool
 	once      sync.Once
-	Network   vip.Network
+	Network   []vip.Network
+	arpMgr    *arp.Manager
 }
 
 // InitCluster - Will attempt to initialise all of the required settings for the cluster
-func InitCluster(c *kubevip.Config, disableVIP bool) (*Cluster, error) {
-	var network vip.Network
+func InitCluster(c *kubevip.Config, disableVIP bool, intfMgr *networkinterface.Manager, arpMgr *arp.Manager) (*Cluster, error) {
+	var networks []vip.Network
 	var err error
 
 	if !disableVIP {
 		// Start the Virtual IP Networking configuration
-		network, err = startNetworking(c)
+		networks, err = startNetworking(c, intfMgr)
 		if err != nil {
 			return nil, err
 		}
 	}
 	// Initialise the Cluster structure
 	newCluster := &Cluster{
-		Network: network,
+		Network: networks,
+		arpMgr:  arpMgr,
 	}
 
-	log.Debugf("init enable service security: %t", c.EnableServiceSecurity)
+	log.Debug("service security", "enabled", c.EnableServiceSecurity)
 
 	return newCluster, nil
 }
 
-func startNetworking(c *kubevip.Config) (vip.Network, error) {
+func startNetworking(c *kubevip.Config, intfMgr *networkinterface.Manager) ([]vip.Network, error) {
 	address := c.VIP
 
 	if c.Address != "" {
 		address = c.Address
 	}
 
-	network, err := vip.NewConfig(address, c.Interface, c.VIPSubnet, c.DDNS, c.RoutingTableID)
-	if err != nil {
-		return nil, err
+	addresses := vip.Split(address)
+
+	networks := []vip.Network{}
+	for _, addr := range addresses {
+		network, err := vip.NewConfig(addr, c.Interface, c.LoInterfaceGlobalScope, c.VIPSubnet, c.DDNS, c.DHCPMode,
+			c.RequireDualStack, c.IsDualStack, c.RoutingTableID, c.RoutingTableType, c.RoutingProtocol, c.DNSMode,
+			c.LoadBalancerForwardingMethod, c.IptablesBackend, c.EnableLoadBalancer, c.EnableServiceSecurity, intfMgr)
+		if err != nil {
+			return nil, err
+		}
+		networks = append(networks, network...)
 	}
 
-	return network, nil
+	return networks, nil
 }
 
 // Stop - Will stop the Cluster and release VIP if needed

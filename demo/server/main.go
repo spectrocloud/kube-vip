@@ -32,7 +32,7 @@ func main() {
 		}
 	}
 
-	if serverType == strings.ToLower("udp") {
+	if serverType == "udp" {
 		// Start the UDP echo server
 
 		ServerAddr, err := net.ResolveUDPAddr("udp", ":10002")
@@ -60,7 +60,7 @@ func main() {
 				fmt.Println("error: ", err)
 			}
 
-			ServerConn.WriteTo(buf[0:n])
+			ServerConn.WriteTo(buf[0:n], addr)
 		}
 	}
 }
