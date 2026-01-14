@@ -17,7 +17,7 @@ LDFLAGS=-ldflags "-s -w -X=main.Version=$(VERSION) -X=main.Build=$(BUILD) -extld
 DOCKERTAG ?= $(VERSION)
 REPOSITORY ?= gcr.io/spectro-dev-public/release
 
-GOLANG_VERSION=1.24
+GOLANG_VERSION=1.25
 FIPS_ENABLE ?= ""
 BUILD_ARGS = --build-arg CRYPTO_LIB=${FIPS_ENABLE} --build-arg GOLANG_VERSION=${GOLANG_VERSION}
 PLATFORM ?= "linux/amd64,linux/arm64"
