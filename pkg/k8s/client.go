@@ -71,7 +71,7 @@ func findAddressFromRemoteCert(address string) ([]net.IP, error) {
 	// TODO: should we care at this point, probably not as we just want the certificates
 	conf := &tls.Config{
 		MinVersion:         tls.VersionTLS12,
-		InsecureSkipVerify: true, //nolint
+		InsecureSkipVerify: true, //nolint // #nosec G402
 	}
 	d := &net.Dialer{
 		Timeout: time.Duration(3) * time.Second,
