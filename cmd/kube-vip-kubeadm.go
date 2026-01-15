@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"os"
 
+	log "log/slog"
+
 	"github.com/kube-vip/kube-vip/pkg/kubevip"
-	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
@@ -22,7 +23,7 @@ func init() {
 var kubeKubeadm = &cobra.Command{
 	Use:   "kubeadm",
 	Short: "Kubeadm functions",
-	Run: func(cmd *cobra.Command, args []string) {
+	Run: func(cmd *cobra.Command, args []string) { //nolint TODO
 		_ = cmd.Help()
 		// TODO - A load of text detailing what's actually happening
 	},
@@ -32,63 +33,84 @@ var kubeKubeadmInit = &cobra.Command{
 	Use:   "init",
 	Short: "kube-vip init",
 	Long:  "The \"init\" subcommand will generate the Kubernetes manifest that will be started by kubeadm through the kubeadm init process",
-	Run: func(cmd *cobra.Command, args []string) {
-		// Set the logging level for all subsequent functions
-		log.SetLevel(log.Level(logLevel))
+	Run: func(cmd *cobra.Command, args []string) { //nolint TODO
+
 		initConfig.LoadBalancers = append(initConfig.LoadBalancers, initLoadBalancer)
 		// TODO - A load of text detailing what's actually happening
 		err := kubevip.ParseEnvironment(&initConfig)
 		if err != nil {
-			log.Fatalf("Error parsing environment from config: %v", err)
+			log.Error("parsing environment", "err", err)
+			return
 		}
 
 		// TODO - check for certain things VIP/interfaces
 		if initConfig.Interface == "" {
 			_ = cmd.Help()
-			log.Fatalln("No interface is specified for kube-vip to bind to")
+			log.Error("No interface is specified for kube-vip to bind to")
+			return
 		}
 
 		if initConfig.VIP == "" && initConfig.Address == "" {
 			_ = cmd.Help()
-			log.Fatalln("No address is specified for kube-vip to expose services on")
+			log.Error("No address is specified for kube-vip to expose services on")
+			return
 		}
-		cfg := kubevip.GeneratePodManifestFromConfig(&initConfig, Release.Version, inCluster)
 
-		fmt.Println(cfg)
+		// Ensure there is an address to generate the CIDR from
+		if initConfig.VIPSubnet == "" && initConfig.Address != "" {
+			initConfig.VIPSubnet, err = GenerateCidrRange(initConfig.Address, initConfig.DNSMode)
+			if err != nil {
+				log.Error("generating VIPSubnet", "err", err)
+				return
+			}
+		}
+
+		cfg := kubevip.GeneratePodManifestFromConfig(&initConfig, image, Release.Version, inCluster)
+		fmt.Println(cfg) // output manifest to stdout
 	},
 }
 
 var kubeKubeadmJoin = &cobra.Command{
 	Use:   "join",
 	Short: "kube-vip join",
-	Run: func(cmd *cobra.Command, args []string) {
-		// Set the logging level for all subsequent functions
-		log.SetLevel(log.Level(logLevel))
+	Run: func(cmd *cobra.Command, args []string) { //nolint TODO
 
 		initConfig.LoadBalancers = append(initConfig.LoadBalancers, initLoadBalancer)
 		// TODO - A load of text detailing what's actually happening
 		err := kubevip.ParseEnvironment(&initConfig)
 		if err != nil {
-			log.Fatalf("Error parsing environment from config: %v", err)
+			log.Error("parsing environment", "err", err)
+			return
 		}
 
 		// TODO - check for certain things VIP/interfaces
 		if initConfig.Interface == "" {
 			_ = cmd.Help()
-			log.Fatalln("No interface is specified for kube-vip to bind to")
+			log.Error("No interface is specified for kube-vip to bind to")
+			return
 		}
 
 		if initConfig.VIP == "" && initConfig.Address == "" {
 			_ = cmd.Help()
-			log.Fatalln("No address is specified for kube-vip to expose services on")
+			log.Error("No address is specified for kube-vip to expose services on")
+			return
 		}
 
 		if _, err := os.Stat(kubeConfigPath); os.IsNotExist(err) {
-			log.Fatalf("Unable to find file [%s]", kubeConfigPath)
+			log.Error("kubeConfig not found", "Path", kubeConfigPath)
+			return
 		}
 
-		// Generate manifest and print
-		cfg := kubevip.GeneratePodManifestFromConfig(&initConfig, Release.Version, inCluster)
-		fmt.Println(cfg)
+		// Ensure there is an address to generate the CIDR from
+		if initConfig.VIPSubnet == "" && initConfig.Address != "" {
+			initConfig.VIPSubnet, err = GenerateCidrRange(initConfig.Address, initConfig.DNSMode)
+			if err != nil {
+				log.Error("generating VIPSubnet", "err", err)
+				return
+			}
+		}
+
+		cfg := kubevip.GeneratePodManifestFromConfig(&initConfig, image, Release.Version, inCluster)
+		fmt.Println(cfg) // output manifest to stdout
 	},
 }

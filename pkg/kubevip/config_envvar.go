@@ -9,6 +9,9 @@ const (
 	// vip_arpRate - defines the rate of gARP broadcasts
 	vipArpRate = "vip_arpRate"
 
+	// vipPreserveOnLeadershipLoss - if true, VIP addresses will remain on interface when leadership is lost
+	vipPreserveOnLeadershipLoss = "vip_preserve_on_leadership_loss"
+
 	// vipLeaderElection - defines if the kubernetes algorithm should be used
 	vipLeaderElection = "vip_leaderelection"
 
@@ -33,11 +36,11 @@ const (
 	// vipInterface - defines the interface that the vip should bind too
 	vipInterface = "vip_interface"
 
+	// vipInterfaceLoGlobal - defines if the lo interface (if used) should have a global scope
+	vipInterfaceLoGlobal = "vip_interfaceloglobal"
+
 	// vipServicesInterface - defines the interface that the service vips should bind too
 	vipServicesInterface = "vip_servicesinterface"
-
-	// vipCidr - defines the cidr that the vip will use (for BGP)
-	vipCidr = "vip_cidr"
 
 	// vipSubnet - defines the subnet that the vip will use
 	vipSubnet = "vip_subnet"
@@ -74,23 +77,14 @@ const (
 	// vipDdns - defines if use dynamic dns to allocate IP for "address"
 	vipDdns = "vip_ddns"
 
+	// vipLeaseNodeName defines the node name that is used to acquire leases
+	nodeName = "vip_nodename"
+
 	// vipSingleNode - defines the vip start as a single node cluster
 	vipSingleNode = "vip_singlenode"
 
 	// vipStartLeader - will start this instance as the leader of the cluster
 	vipStartLeader = "vip_startleader"
-
-	// vipPacket defines that the packet API will be used for EIP
-	vipPacket = "vip_packet"
-
-	// vipPacketProject defines which project within Packet to use
-	vipPacketProject = "vip_packetproject"
-
-	// vipPacketProjectID defines which projectID within Packet to use
-	vipPacketProjectID = "vip_packetprojectid"
-
-	// providerConfig defines a path to a configuration that should be parsed
-	providerConfig = "provider_config"
 
 	// bgpEnable defines if BGP should be enabled
 	bgpEnable = "bgp_enable"
@@ -114,6 +108,26 @@ const (
 	bgpSourceIF = "bgp_sourceif"
 	// bgpSourceIP defines the source address for BGP peering
 	bgpSourceIP = "bgp_sourceip"
+	// bgpHoldTime defines bgp timers hold time
+	bgpHoldTime = "bgp_hold_time"
+	// bgpKeepaliveInterval defines bgp timers keepalive interval
+	bgpKeepaliveInterval = "bgp_keepalive_interval"
+
+	// zebraEnable defines if Zebra integraton should be enabled
+	zebraEnable = "zebra_enable"
+	// zebraUrl specifies path to the unix domain socket for connecting to Zebra daemon
+	zebraURL = "zebra_url"
+	// zebraVersion specifies Zebra API Version
+	zebraVersion = "zebra_version"
+	// zebraSoftwareName specifies Software Name for Zebra
+	zebraSoftwareName = "zebra_software_name"
+
+	// mpbgpNexthop defines MPBGP mode
+	mpbgpNexthop = "mpbgp_nexthop"
+	// mpbgpIPv4 defines fixed IPv4 to be used with MPBGP
+	mpbgpIPv4 = "mpbgp_ipv4"
+	// mpbgpIPv6 defines fixed IPv6 to be used with MPBGP
+	mpbgpIPv6 = "mpbgp_ipv6"
 
 	// vipWireguard - defines if wireguard will be used for vips
 	vipWireguard = "vip_wireguard" //nolint
@@ -121,11 +135,34 @@ const (
 	// vipRoutingTable - defines if table mode will be used for vips
 	vipRoutingTable = "vip_routingtable" //nolint
 
+	// vipRoutingTableID - defines which table mode will be used for vips
+	vipRoutingTableID = "vip_routingtableid" //nolint
+
+	// vipRoutingTableType - defines which table type will be used for vip routes
+	// 						 valid values for this variable can be found in:
+	//						 https://pkg.go.dev/golang.org/x/sys/unix#RTN_UNSPEC
+	//						 Note that route type have the prefix `RTN_`, and you
+	//						 specify the integer value, not the name. For example:
+	//						 you should say `vip_routingtabletype=2` for RTN_LOCAL
+	vipRoutingTableType = "vip_routingtabletype" //nolint
+
+	// vipRoutingProtocol - defines what value will be used as protocol when creating routes
+	vipRoutingProtocol = "vip_routingprotocol" //nolint
+
+	// vipCleanRoutingTable - defines if routing table will be cleaned of redundant routes on kube-vip's start
+	vipCleanRoutingTable = "vip_cleanroutingtable" //nolint
+
 	// cpNamespace defines the namespace the control plane pods will run in
 	cpNamespace = "cp_namespace"
 
 	// cpEnable enables the control plane feature
 	cpEnable = "cp_enable"
+
+	// cpDetect will attempt to automatically find a working address for the control plane from loopback
+	cpDetect = "cp_detect"
+
+	// kubernetesAddr，is the address of the Kubernetes API server on this machine
+	kubernetesAddr = "kubernetes_addr"
 
 	// svcEnable enables the Kubernetes service feature
 	svcEnable = "svc_enable"
@@ -144,6 +181,9 @@ const (
 
 	// lbClassName enables load-balancer for a specific class only
 	lbClassName = "lb_class_name"
+
+	// lbClassLegacyHandling enables legacy handing of load-balancer class
+	lbClassLegacyHandling = "lb_class_legacy_handling"
 
 	// lbEnable defines if the load-balancer should be enabled
 	lbEnable = "lb_enable"
@@ -165,4 +205,42 @@ const (
 
 	// vipConfigMap defines the configmap that kube-vip will watch for service definitions
 	// vipConfigMap = "vip_configmap"
+
+	// k8sConfigFile defines the path to the configfile used to speak with the API server
+	k8sConfigFile = "k8s_config_file"
+
+	// dnsMode defines mode that DNS lookup will be performed with (first, ipv4, ipv6, dual)
+	dnsMode = "dns_mode"
+
+	// dhcpMode defines mode that DHCP lookup will be performed with (ipv4, ipv6, dual)
+	dhcpMode = "dhcp_mode"
+
+	// disableServiceUpdates disables service updating
+	disableServiceUpdates = "disable_service_updates"
+
+	// enableEndpoints enables use of Endpoints instead of EndpointSlices
+	enableEndpoints = "enable_endpoints"
+
+	// mirrorDestInterface is the network interface where all traffics that go through service interface
+	// will be mirrored to. The source interface is ServicesInterface by default, fall back to Interface if not set.
+	// + optional
+	mirrorDestInterface = "mirror_dest_interface"
+
+	// iptablesBackend iptables backend, can be specified as `nft` or `legacy`. If not set, it defaults to automatic detection.
+	iptablesBackend = "iptables_backend"
+
+	// backendHealthCheckInterval Interval in seconds for checking backend health.
+	backendHealthCheckInterval = "backend_health_check_interval"
+
+	// healthCheckPort, if set to non-zero will be the port the health check will listen on
+	healthCheckPort = "health_check_port"
+
+	// enableUPNP enables UPNP functions
+	enableUPNP = "enable_upnp"
+
+	// egressClean enables egress cleaning on kube-vip's start
+	egressClean = "egress_clean"
+
+	// configFile defines the path to a JSON/YAML configuration file
+	configFile = "config_file"
 )

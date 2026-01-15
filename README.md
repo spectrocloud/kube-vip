@@ -4,7 +4,7 @@ High Availability and Load-Balancing
 
 ![](https://github.com/kube-vip/kube-vip/raw/main/kube-vip.png)
 
-[![Build and publish main image regularly](https://github.com/kube-vip/kube-vip/actions/workflows/main.yaml/badge.svg)](https://github.com/kube-vip/kube-vip/actions/workflows/main.yaml)
+[![Build and publish main image regularly](https://github.com/kube-vip/kube-vip/actions/workflows/main.yaml/badge.svg)](https://github.com/kube-vip/kube-vip/actions/workflows/main.yaml) [![LFX Health Score](https://img.shields.io/static/v1?label=Health%20Score&message=Healthy&color=A7F3D0&logo=linuxfoundation&logoColor=white&style=flat)](https://insights.linuxfoundation.org/project/kube-vip) [![LFX Active Contributors](https://img.shields.io/static/v1?label=Active%20contributors%20(1Y)&message=212&color=0094FF&logo=linuxfoundation&logoColor=white&style=flat)](https://insights.linuxfoundation.org/project/kube-vip)
 
 ## Overview
 Kubernetes Virtual IP and Load-Balancer for both control plane and Kubernetes services
@@ -32,6 +32,7 @@ Kube-Vip was originally created to provide a HA solution for the Kubernetes cont
 - Service LoadBalancer address pools per namespace or global
 - Service LoadBalancer address via (existing network DHCP)
 - Service LoadBalancer address exposure to gateway via UPNP
+- Egress! Kube-vip will utilise a service loadbalancer as both the ingress and **egress** for a pod. 
 - ... manifest generation, vendor API integrations and many more...
 
 ## Why?

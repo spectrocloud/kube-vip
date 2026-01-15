@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:experimental
 
-ARG GOLANG_VERSION
+ARG GOLANG_VERSION=1.25
 
 FROM --platform=$TARGETPLATFORM us-docker.pkg.dev/palette-images/build-base-images/golang:${GOLANG_VERSION}-alpine as builder
 ARG TARGETOS

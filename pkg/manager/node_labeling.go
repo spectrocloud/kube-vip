@@ -5,15 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 
-	log "github.com/sirupsen/logrus"
+	log "log/slog"
+
+	"github.com/kube-vip/kube-vip/pkg/kubevip"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
-)
-
-const (
-	nodeLabelIndex    = "kube-vip.io/has-ip"
-	nodeLabelJSONPath = `kube-vip.io~1has-ip`
 )
 
 type patchStringLabel struct {
@@ -28,24 +25,23 @@ func applyNodeLabel(clientSet *kubernetes.Clientset, address, id, identity strin
 	ctx := context.Background()
 	node, err := clientSet.CoreV1().Nodes().Get(ctx, id, metav1.GetOptions{})
 	if err != nil {
-		log.Errorf("can't query node %s labels. error: %v", id, err)
+		log.Error("can't query node labels", "node", id, "err", err)
 		return
 	}
 
-	log.Debugf("node %s labels: %+v", id, node.Labels)
+	log.Debug(fmt.Sprintf("node %s labels: %+v", id, node.Labels))
 
-	value, ok := node.Labels[nodeLabelIndex]
-	path := fmt.Sprintf("/metadata/labels/%s", nodeLabelJSONPath)
-	if (!ok || value != address) && id == identity {
-		log.Debugf("setting node label `has-ip=%s` on %s", address, id)
-		// Append label
-		applyPatchLabels(ctx, clientSet, id, "add", path, address)
-	} else if ok && value == address {
-		log.Debugf("removing node label `has-ip=%s` on %s", address, id)
+	value, ok := node.Labels[kubevip.HasIP]
+	path := fmt.Sprintf("/metadata/labels/%s", kubevip.HasIPJSONPath)
+	log.Debug(fmt.Sprintf("Received identity: %s - id: %s", identity, id))
+	if ok && value == address {
+		log.Debug(fmt.Sprintf("removing node label `has-ip=%s` on %s", address, id))
 		// Remove label
 		applyPatchLabels(ctx, clientSet, id, "remove", path, address)
 	} else {
-		log.Debugf("no node label change needed")
+		log.Debug(fmt.Sprintf("setting node label `has-ip=%s` on %s", address, id))
+		// Append label
+		applyPatchLabels(ctx, clientSet, id, "add", path, address)
 	}
 }
 
@@ -59,15 +55,15 @@ func applyPatchLabels(ctx context.Context, clientSet *kubernetes.Clientset,
 	}}
 	patchData, err := json.Marshal(patchLabels)
 	if err != nil {
-		log.Errorf("node patch marshaling failed. error: %v", err)
+		log.Error("node patch marshaling failed", "err", err)
 		return
 	}
 	// patch node
 	node, err := clientSet.CoreV1().Nodes().Patch(ctx,
 		name, types.JSONPatchType, patchData, metav1.PatchOptions{})
 	if err != nil {
-		log.Errorf("can't patch node %s. error: %v", name, err)
+		log.Error("node patching failed", "err", err)
 		return
 	}
-	log.Debugf("updated node %s labels: %+v", name, node.Labels)
+	log.Debug("updated", "node", name, "labels", node.Labels)
 }

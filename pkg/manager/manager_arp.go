@@ -2,23 +2,22 @@ package manager
 
 import (
 	"context"
-	"os"
-	"strconv"
 	"syscall"
 	"time"
 
-	"github.com/kamhlos/upnp"
-	log "github.com/sirupsen/logrus"
+	log "log/slog"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 
 	"github.com/kube-vip/kube-vip/pkg/cluster"
+	"github.com/kube-vip/kube-vip/pkg/iptables"
 	"github.com/kube-vip/kube-vip/pkg/vip"
 )
 
 // Start will begin the Manager, which will start services and watch the configmap
-func (sm *Manager) startARP() error {
+func (sm *Manager) startARP(id string) error {
 	var cpCluster *cluster.Cluster
 	var ns string
 	var err error
@@ -28,44 +27,55 @@ func (sm *Manager) startARP() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	log.Info("Start ARP/NDP advertisement")
+	go sm.arpMgr.StartAdvertisement(ctx)
+
 	// Shutdown function that will wait on this signal, unless we call it ourselves
 	go func() {
-		<-sm.signalChan
-		log.Info("Received kube-vip termination, signaling shutdown")
-		if sm.config.EnableControlPlane {
-			cpCluster.Stop()
+		for {
+			sig := <-sm.signalChan
+			switch sig {
+			case syscall.SIGUSR1:
+				log.Info("Received SIGUSR1, dumping configuration")
+				sm.dumpConfiguration()
+			case syscall.SIGINT, syscall.SIGTERM:
+				log.Info("Received kube-vip termination, signaling shutdown")
+				if sm.config.EnableControlPlane {
+					cpCluster.Stop()
+				}
+				// Close all go routines
+				close(sm.shutdownChan)
+				// Cancel the context, which will in turn cancel the leadership
+				cancel()
+				return
+			}
 		}
-		// Close all go routines
-		close(sm.shutdownChan)
-		// Cancel the context, which will in turn cancel the leadership
-		cancel()
 	}()
 
 	if sm.config.EnableControlPlane {
-		cpCluster, err = cluster.InitCluster(sm.config, false)
+		cpCluster, err = cluster.InitCluster(sm.config, false, sm.intfMgr, sm.arpMgr)
 		if err != nil {
 			return err
 		}
 
-		clusterManager := &cluster.Manager{
-			KubernetesClient: sm.clientSet,
-			SignalChan:       sm.signalChan,
+		clusterManager, err := initClusterManager(sm)
+		if err != nil {
+			return err
 		}
 
 		go func() {
 			err := cpCluster.StartCluster(sm.config, clusterManager, nil)
 			if err != nil {
-				log.Errorf("Control Plane Error [%v]", err)
+				log.Error("starting control plane", "err", err)
 				// Trigger the shutdown of this manager instance
 				sm.signalChan <- syscall.SIGINT
-
 			}
 		}()
 
 		// Check if we're also starting the services, if not we can sit and wait on the closing channel and return here
 		if !sm.config.EnableServices {
-			<-sm.signalChan
-			log.Infof("Shutting down Kube-Vip")
+			<-sm.shutdownChan
+			log.Info("Shutting down Kube-Vip")
 
 			return nil
 		}
@@ -75,56 +85,27 @@ func (sm *Manager) startARP() error {
 
 		ns, err = returnNameSpace()
 		if err != nil {
-			log.Warnf("unable to auto-detect namespace, dropping to [%s]", sm.config.Namespace)
+			log.Warn("unable to auto-detect namespace, dropping to config", "namespace", sm.config.Namespace)
 			ns = sm.config.Namespace
 		}
 	}
 
-	id, err := os.Hostname()
-	if err != nil {
-		return err
-	}
-
-	// Before starting the leader Election enable any additional functionality
-	upnpEnabled, _ := strconv.ParseBool(os.Getenv("enableUPNP"))
-
-	if upnpEnabled {
-		sm.upnp = new(upnp.Upnp)
-		err := sm.upnp.ExternalIPAddr()
-		if err != nil {
-			log.Errorf("Error Enabling UPNP %s", err.Error())
-			// Set the struct to nil so nothing should use it in future
-			sm.upnp = nil
-		} else {
-			log.Infof("Successfully enabled UPNP, Gateway address [%s]", sm.upnp.GatewayOutsideIP)
-		}
-	}
-
 	// This will tidy any dangling kube-vip iptables rules
-	if os.Getenv("EGRESS_CLEAN") != "" {
-		i, err := vip.CreateIptablesClient(sm.config.EgressWithNftables, sm.config.ServiceNamespace)
-		if err != nil {
-			log.Warnf("[egress] Unable to clean any dangling egress rules [%v]", err)
-		} else {
-			log.Info("[egress] Cleaning any dangling kube-vip egress rules")
-			cleanErr := i.CleanIPtables()
-			if cleanErr != nil {
-				log.Errorf("Error cleaning rules [%v]", cleanErr)
-			}
-		}
+	if sm.config.EgressClean {
+		vip.ClearIPTables(sm.config.EgressWithNftables, sm.config.ServiceNamespace, iptables.ProtocolIPv4)
 	}
 
 	// Start a services watcher (all kube-vip pods will watch services), upon a new service
 	// a lock based upon that service is created that they will all leaderElection on
 	if sm.config.EnableServicesElection {
-		log.Infof("beginning watching services, leaderelection will happen for every service")
-		err = sm.startServicesWatchForLeaderElection(ctx)
+		log.Info("beginning watching services, leaderelection will happen for every service")
+		err = sm.svcProcessor.StartServicesWatchForLeaderElection(ctx)
 		if err != nil {
 			return err
 		}
 	} else {
 
-		log.Infof("beginning services leadership, namespace [%s], lock name [%s], id [%s]", ns, sm.config.ServicesLeaseName, id)
+		log.Info("beginning services leadership", "namespace", ns, "lock name", sm.config.ServicesLeaseName, "id", id)
 		// we use the Lease lock type since edits to Leases are less common
 		// and fewer objects in the cluster watch "all Leases".
 		lock := &resourcelock.LeaseLock{
@@ -153,19 +134,21 @@ func (sm *Manager) startARP() error {
 			RetryPeriod:     time.Duration(sm.config.RetryPeriod) * time.Second,
 			Callbacks: leaderelection.LeaderCallbacks{
 				OnStartedLeading: func(ctx context.Context) {
-					err = sm.servicesWatcher(ctx, sm.syncServices)
+					err = sm.svcProcessor.ServicesWatcher(ctx, sm.svcProcessor.SyncServices)
 					if err != nil {
-						log.Error(err)
+						log.Error("service watcher", "err", err)
+						panic("") // TODO: - emulating log.fatal here
 					}
 				},
 				OnStoppedLeading: func() {
 					// we can do cleanup here
-					log.Infof("leader lost: %s", id)
-					for x := range sm.serviceInstances {
-						sm.serviceInstances[x].cluster.Stop()
-					}
+					sm.mutex.Lock()
+					defer sm.mutex.Unlock()
+					log.Info("leader lost", "new leader", id)
+					sm.svcProcessor.Stop()
 
-					log.Fatal("lost leadership, restarting kube-vip")
+					log.Error("lost leadership, restarting kube-vip")
+					panic("") // TODO: - emulating log.fatal here
 				},
 				OnNewLeader: func(identity string) {
 					// we're notified when new leader elected
@@ -176,7 +159,7 @@ func (sm *Manager) startARP() error {
 						// I just got the lock
 						return
 					}
-					log.Infof("new leader elected: %s", identity)
+					log.Info("new leader elected", "new leader", identity)
 				},
 			},
 		})

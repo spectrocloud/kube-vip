@@ -7,7 +7,7 @@ import (
 
 	"github.com/mdlayher/ndp"
 
-	log "github.com/sirupsen/logrus"
+	log "log/slog"
 )
 
 // NdpResponder defines the parameters for the NDP connection.
@@ -21,13 +21,13 @@ type NdpResponder struct {
 func NewNDPResponder(ifaceName string) (*NdpResponder, error) {
 	iface, err := net.InterfaceByName(ifaceName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get interface %q: %v", ifaceName, err)
+		return nil, fmt.Errorf("failed to get interface %q: %w", ifaceName, err)
 	}
 
 	// Use link-local address as the source IPv6 address for NDP communications.
 	conn, _, err := ndp.Listen(iface, ndp.LinkLocal)
 	if err != nil {
-		return nil, fmt.Errorf("creating NDP responder for %q: %s", iface.Name, err)
+		return nil, fmt.Errorf("creating NDP responder for %s: %w", iface.Name, err)
 	}
 
 	ret := &NdpResponder{
@@ -50,7 +50,7 @@ func (n *NdpResponder) SendGratuitous(address string) error {
 		return fmt.Errorf("failed to parse address %s", ip)
 	}
 
-	log.Infof("Broadcasting NDP update for %s (%s) via %s", address, n.hardwareAddr, n.intf)
+	log.Info("Broadcasting NDP update", "ip", address, "hwaddr", n.hardwareAddr, "interface", n.intf)
 	return n.advertise(netip.IPv6LinkLocalAllNodes(), ip, true)
 }
 
@@ -66,6 +66,7 @@ func (n *NdpResponder) advertise(dst, target netip.Addr, gratuitous bool) error 
 			},
 		},
 	}
-	log.Infof("ndp: %v", m)
+
+	log.Debug("ndp", "advertisement", m)
 	return n.conn.WriteTo(m, nil, dst)
 }

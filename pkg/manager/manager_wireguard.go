@@ -2,33 +2,27 @@ package manager
 
 import (
 	"context"
-	"os"
-	"strconv"
+	"syscall"
 	"time"
 
-	"github.com/kamhlos/upnp"
+	log "log/slog"
+
 	"github.com/kube-vip/kube-vip/pkg/wireguard"
-	log "github.com/sirupsen/logrus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 )
 
 // Start will begin the Manager, which will start services and watch the configmap
-func (sm *Manager) startWireguard() error {
+func (sm *Manager) startWireguard(id string) error {
 	var ns string
 	var err error
-
-	id, err := os.Hostname()
-	if err != nil {
-		return err
-	}
 
 	// use a Go context so we can tell the leaderelection code when we
 	// want to step down
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	log.Infoln("reading wireguard peer configuration from Kubernetes secret")
+	log.Info("reading wireguard peer configuration from Kubernetes secret")
 	s, err := sm.clientSet.CoreV1().Secrets(sm.config.Namespace).Get(ctx, "wireguard", metav1.GetOptions{})
 	if err != nil {
 		return err
@@ -46,45 +40,38 @@ func (sm *Manager) startWireguard() error {
 
 	// Shutdown function that will wait on this signal, unless we call it ourselves
 	go func() {
-		<-sm.signalChan
-		log.Info("Received termination, signaling shutdown")
-
-		// Cancel the context, which will in turn cancel the leadership
-		cancel()
+		for {
+			sig := <-sm.signalChan
+			switch sig {
+			case syscall.SIGUSR1:
+				log.Info("Received SIGUSR1, dumping configuration")
+				sm.dumpConfiguration()
+			case syscall.SIGINT, syscall.SIGTERM:
+				log.Info("Received termination, signaling shutdown")
+				// Cancel the context, which will in turn cancel the leadership
+				cancel()
+				return
+			}
+		}
 	}()
 
 	ns, err = returnNameSpace()
 	if err != nil {
-		log.Warnf("unable to auto-detect namespace, dropping to [%s]", sm.config.Namespace)
+		log.Warn("unable to auto-detect namespace", "dropping to", sm.config.Namespace)
 		ns = sm.config.Namespace
-	}
-
-	// Before starting the leader Election enable any additional functionality
-	upnpEnabled, _ := strconv.ParseBool(os.Getenv("enableUPNP"))
-
-	if upnpEnabled {
-		sm.upnp = new(upnp.Upnp)
-		err := sm.upnp.ExternalIPAddr()
-		if err != nil {
-			log.Errorf("Error Enabling UPNP %s", err.Error())
-			// Set the struct to nil so nothing should use it in future
-			sm.upnp = nil
-		} else {
-			log.Infof("Successfully enabled UPNP, Gateway address [%s]", sm.upnp.GatewayOutsideIP)
-		}
 	}
 
 	// Start a services watcher (all kube-vip pods will watch services), upon a new service
 	// a lock based upon that service is created that they will all leaderElection on
 	if sm.config.EnableServicesElection {
-		log.Infof("beginning watching services, leaderelection will happen for every service")
-		err = sm.startServicesWatchForLeaderElection(ctx)
+		log.Info("beginning watching services, leaderelection will happen for every service")
+		err = sm.svcProcessor.StartServicesWatchForLeaderElection(ctx)
 		if err != nil {
 			return err
 		}
 	} else {
 
-		log.Infof("beginning services leadership, namespace [%s], lock name [%s], id [%s]", ns, plunderLock, id)
+		log.Info("beginning services leadership", "namespace", ns, "lock name", plunderLock, "id", id)
 		// we use the Lease lock type since edits to Leases are less common
 		// and fewer objects in the cluster watch "all Leases".
 		lock := &resourcelock.LeaseLock{
@@ -113,19 +100,21 @@ func (sm *Manager) startWireguard() error {
 			RetryPeriod:     time.Duration(sm.config.RetryPeriod) * time.Second,
 			Callbacks: leaderelection.LeaderCallbacks{
 				OnStartedLeading: func(ctx context.Context) {
-					err = sm.servicesWatcher(ctx, sm.syncServices)
+					err = sm.svcProcessor.ServicesWatcher(ctx, sm.svcProcessor.SyncServices)
 					if err != nil {
-						log.Error(err)
+						log.Error(err.Error())
+						panic("")
 					}
 				},
 				OnStoppedLeading: func() {
 					// we can do cleanup here
-					log.Infof("leader lost: %s", id)
-					for x := range sm.serviceInstances {
-						sm.serviceInstances[x].cluster.Stop()
-					}
+					sm.mutex.Lock()
+					defer sm.mutex.Unlock()
+					log.Info("leader lost", "id", id)
+					sm.svcProcessor.Stop()
 
-					log.Fatal("lost leadership, restarting kube-vip")
+					log.Error("lost leadership, restarting kube-vip")
+					panic("")
 				},
 				OnNewLeader: func(identity string) {
 					// we're notified when new leader elected
@@ -133,7 +122,7 @@ func (sm *Manager) startWireguard() error {
 						// I just got the lock
 						return
 					}
-					log.Infof("new leader elected: %s", identity)
+					log.Info("new leader elected", "id", identity)
 				},
 			},
 		})

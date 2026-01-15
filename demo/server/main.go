@@ -14,6 +14,7 @@ func main() {
 
 	if serverType == "tcp" {
 		// Start the TCP echo server
+		// #nosec G102
 		l, err := net.Listen("tcp", ":10001")
 		if err != nil {
 			fmt.Println("ERROR", err)
@@ -32,7 +33,7 @@ func main() {
 		}
 	}
 
-	if serverType == strings.ToLower("udp") {
+	if serverType == "udp" {
 		// Start the UDP echo server
 
 		ServerAddr, err := net.ResolveUDPAddr("udp", ":10002")
@@ -60,7 +61,7 @@ func main() {
 				fmt.Println("error: ", err)
 			}
 
-			ServerConn.WriteTo(buf[0:n])
+			ServerConn.WriteTo(buf[0:n], addr)
 		}
 	}
 }

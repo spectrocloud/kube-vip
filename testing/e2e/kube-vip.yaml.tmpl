@@ -4,6 +4,8 @@ kind: Pod
 metadata:
   name: kube-vip
   namespace: kube-system
+  labels:
+    app: kube-vip
 spec:
   containers:
   - name: kube-vip
@@ -12,6 +14,8 @@ spec:
     - --prometheusHTTPServer
     - ""
     env:
+    - name: vip_loglevel
+      value: "-4"
     - name: vip_arp
       value: "true"
     - name: vip_interface
@@ -28,6 +32,18 @@ spec:
       value: "1"
     - name: cp_enable
       value: "true"
+    - name: vip_nodename
+      valueFrom:
+        fieldRef:
+          fieldPath: spec.nodeName
+    - name: svc_enable
+      value: "{{ .SvcEnable }}"
+    - name: svc_election
+      value: "{{ .SvcElectionEnable }}"
+    - name: enable_node_labeling
+      value: "{{ .EnableNodeLabeling }}"
+    - name: enable_endpointslices
+      value: "{{ .EnableEndpointslices }}"
     image: "{{ .ImagePath }}"
     imagePullPolicy: Never
     securityContext:
@@ -45,5 +61,5 @@ spec:
   hostNetwork: true
   volumes:
   - hostPath:
-      path: /etc/kubernetes/admin.conf
+      path: "{{ .ConfigPath }}"
     name: kubeconfig

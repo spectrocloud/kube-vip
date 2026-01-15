@@ -2,10 +2,13 @@ package vip
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
+	log "log/slog"
+
 	iptables "github.com/kube-vip/kube-vip/pkg/iptables"
-	log "github.com/sirupsen/logrus"
+	"github.com/kube-vip/kube-vip/pkg/utils"
 
 	ct "github.com/florianl/go-conntrack"
 )
@@ -33,17 +36,29 @@ type Egress struct {
 	comment        string
 }
 
-func CreateIptablesClient(nftables bool, namespace string) (*Egress, error) {
-	log.Infof("[egress] Creating an iptables client, nftables mode [%t]", nftables)
+func CreateIptablesClient(nftables bool, namespace string, protocol iptables.Protocol) (*Egress, error) {
+	proto := utils.IPv4Family
+	if protocol == iptables.ProtocolIPv6 {
+		proto = utils.IPv6Family
+	}
+	log.Info("[egress] Creating an iptables client", "nftables", nftables, "protocol", proto)
 	e := new(Egress)
 	var err error
-	e.ipTablesClient, err = iptables.New(iptables.EnableNFTables(nftables))
+
+	options := []iptables.Option{}
+	options = append(options, iptables.EnableNFTables(nftables))
+
+	if protocol == iptables.ProtocolIPv6 {
+		options = append(options, iptables.IPFamily(iptables.ProtocolIPv6), iptables.Timeout(5))
+	}
+
+	e.ipTablesClient, err = iptables.New(options...)
 	e.comment = Comment + "-" + namespace
 	return e, err
 }
 
 func (e *Egress) CheckMangleChain(name string) (bool, error) {
-	log.Infof("[egress] Checking for Chain [%s]", name)
+	log.Info("[egress] chain exists", "name", name)
 	return e.ipTablesClient.ChainExists("mangle", name)
 }
 
@@ -55,8 +70,12 @@ func (e *Egress) DeleteManglePrerouting(name string) error {
 	return e.ipTablesClient.Delete("mangle", "PREROUTING", "-j", name)
 }
 
+func (e *Egress) DeleteMangleReturnForNetwork(name, network string) error {
+	return e.ipTablesClient.Delete("mangle", name, "-d", network, "-j", "RETURN", "-m", "comment", "--comment", e.comment)
+}
+
 func (e *Egress) DeleteMangleMarking(podIP, name string) error {
-	log.Infof("[egress] Stopping marking packets on network [%s]", podIP)
+	log.Info("[egress] Stopping marking packets on network", "podIP", podIP)
 
 	exists, _ := e.ipTablesClient.Exists("mangle", name, "-s", podIP, "-j", "MARK", "--set-mark", "64/64", "-m", "comment", "--comment", e.comment)
 
@@ -66,8 +85,19 @@ func (e *Egress) DeleteMangleMarking(podIP, name string) error {
 	return e.ipTablesClient.Delete("mangle", name, "-s", podIP, "-j", "MARK", "--set-mark", "64/64", "-m", "comment", "--comment", e.comment)
 }
 
+func (e *Egress) DeleteMangleMarkingForNetwork(podIP, name, network string) error {
+	log.Info("[egress] Stopping marking packets", "podIP", podIP, "network", network)
+
+	// exists, _ := e.ipTablesClient.Exists("mangle", name, "-s", podIP, "-d", network, "-j", "MARK", "--set-mark", "64/64", "-m", "comment", "--comment", e.comment)
+
+	// if !exists {
+	// 	return fmt.Errorf("unable to find source Mangle rule for [%s]", podIP)
+	// }
+	return e.ipTablesClient.Delete("mangle", name, "-s", podIP, "-d", network, "-j", "MARK", "--set-mark", "64/64", "-m", "comment", "--comment", e.comment)
+}
+
 func (e *Egress) DeleteSourceNat(podIP, vip string) error {
-	log.Infof("[egress] Removing source nat from [%s] => [%s]", podIP, vip)
+	log.Info("[egress] Removing source nat", "podIP", podIP, "vip", vip)
 
 	exists, _ := e.ipTablesClient.Exists("nat", "POSTROUTING", "-s", podIP+"/32", "-m", "mark", "--mark", "64/64", "-j", "SNAT", "--to-source", vip, "-m", "comment", "--comment", e.comment)
 
@@ -78,7 +108,7 @@ func (e *Egress) DeleteSourceNat(podIP, vip string) error {
 }
 
 func (e *Egress) DeleteSourceNatForDestinationPort(podIP, vip, port, proto string) error {
-	log.Infof("[egress] Adding source nat from [%s] => [%s]", podIP, vip)
+	log.Info("[egress] Removing source nat", "podIP", podIP, "vip", vip, "destination port", port)
 
 	exists, _ := e.ipTablesClient.Exists("nat", "POSTROUTING", "-s", podIP+"/32", "-m", "mark", "--mark", "64/64", "-j", "SNAT", "--to-source", vip, "-p", proto, "--dport", port, "-m", "comment", "--comment", e.comment)
 
@@ -90,13 +120,13 @@ func (e *Egress) DeleteSourceNatForDestinationPort(podIP, vip, port, proto strin
 
 func (e *Egress) CreateMangleChain(name string) error {
 
-	log.Infof("[egress] Creating Chain [%s]", name)
+	log.Info("[egress] Creating Chain", "name", name)
 	// Creates a new chain in the mangle table
 	return e.ipTablesClient.NewChain("mangle", name)
 
 }
 func (e *Egress) AppendReturnRulesForDestinationSubnet(name, subnet string) error {
-	log.Infof("[egress] Adding jump for subnet [%s] to RETURN to previous chain/rules", subnet)
+	log.Info("[egress] Adding jump for subnet to RETURN to previous chain/rules", "subnet", subnet)
 	exists, _ := e.ipTablesClient.Exists("mangle", name, "-d", subnet, "-j", "RETURN", "-m", "comment", "--comment", e.comment)
 	if !exists {
 		return e.ipTablesClient.Append("mangle", name, "-d", subnet, "-j", "RETURN", "-m", "comment", "--comment", e.comment)
@@ -105,7 +135,7 @@ func (e *Egress) AppendReturnRulesForDestinationSubnet(name, subnet string) erro
 }
 
 func (e *Egress) AppendReturnRulesForMarking(name, subnet string) error {
-	log.Infof("[egress] Marking packets on network [%s]", subnet)
+	log.Info("[egress] Marking packets on network", "subnet", subnet)
 	exists, _ := e.ipTablesClient.Exists("mangle", name, "-s", subnet, "-j", "MARK", "--set-mark", "64/64", "-m", "comment", "--comment", e.comment)
 	if !exists {
 		return e.ipTablesClient.Append("mangle", name, "-s", subnet, "-j", "MARK", "--set-mark", "64/64", "-m", "comment", "--comment", e.comment)
@@ -113,8 +143,17 @@ func (e *Egress) AppendReturnRulesForMarking(name, subnet string) error {
 	return nil
 }
 
+func (e *Egress) AppendReturnRulesForMarkingForNetwork(name, subnet, destination string) error {
+	log.Info("[egress] Marking packets on network", "subnet", subnet)
+	exists, _ := e.ipTablesClient.Exists("mangle", name, "-s", subnet, "-d", destination, "-j", "MARK", "--set-mark", "64/64", "-m", "comment", "--comment", e.comment)
+	if !exists {
+		return e.ipTablesClient.Append("mangle", name, "-s", subnet, "-d", destination, "-j", "MARK", "--set-mark", "64/64", "-m", "comment", "--comment", e.comment)
+	}
+	return nil
+}
+
 func (e *Egress) InsertMangeTableIntoPrerouting(name string) error {
-	log.Infof("[egress] Adding jump from mangle prerouting to [%s]", name)
+	log.Info("[egress] Adding jump from mangle prerouting", "destination", name)
 	if exists, err := e.ipTablesClient.Exists("mangle", "PREROUTING", "-j", name, "-m", "comment", "--comment", e.comment); err != nil {
 		return err
 	} else if exists {
@@ -127,7 +166,7 @@ func (e *Egress) InsertMangeTableIntoPrerouting(name string) error {
 }
 
 func (e *Egress) InsertSourceNat(vip, podIP string) error {
-	log.Infof("[egress] Adding source nat from [%s] => [%s]", podIP, vip)
+	log.Info("[egress] Adding source nat", "original source", podIP, "new source", vip)
 	if exists, err := e.ipTablesClient.Exists("nat", "POSTROUTING", "-s", podIP+"/32", "-m", "mark", "--mark", "64/64", "-j", "SNAT", "--to-source", vip, "-m", "comment", "--comment", e.comment); err != nil {
 		return err
 	} else if exists {
@@ -140,7 +179,20 @@ func (e *Egress) InsertSourceNat(vip, podIP string) error {
 }
 
 func (e *Egress) InsertSourceNatForDestinationPort(vip, podIP, port, proto string) error {
-	log.Infof("[egress] Adding source nat from [%s] => [%s], with destination port [%s]", podIP, vip, port)
+	log.Info("[egress] Adding source nat", "from", podIP, "to", vip, "port", port)
+	natRules, err := e.ipTablesClient.List("nat", "POSTROUTING")
+	if err != nil {
+		return err
+	}
+	foundNatRules := e.findExistingVIP(natRules, vip)
+	log.Warn("[egress] Cleaning existing postrouting nat rules for vip", "rulecount", len(foundNatRules), "vip", vip)
+	for x := range foundNatRules {
+		err = e.ipTablesClient.Delete("nat", "POSTROUTING", foundNatRules[x][2:]...)
+		if err != nil {
+			log.Error("[egress] removing rule", "err", err)
+		}
+	}
+
 	if exists, err := e.ipTablesClient.Exists("nat", "POSTROUTING", "-s", podIP+"/32", "-m", "mark", "--mark", "64/64", "-j", "SNAT", "--to-source", vip, "-p", proto, "--dport", port, "-m", "comment", "--comment", e.comment); err != nil {
 		return err
 	} else if exists {
@@ -152,29 +204,90 @@ func (e *Egress) InsertSourceNatForDestinationPort(vip, podIP, port, proto strin
 	return e.ipTablesClient.Insert("nat", "POSTROUTING", 1, "-s", podIP+"/32", "-m", "mark", "--mark", "64/64", "-j", "SNAT", "--to-source", vip, "-p", proto, "--dport", port, "-m", "comment", "--comment", e.comment)
 }
 
-func DeleteExistingSessions(sessionIP string, destination bool) error {
+func DeleteExistingSessions(sessionIP string, destination bool, destinationPorts, srcPorts string) error {
 
 	nfct, err := ct.Open(&ct.Config{})
 	if err != nil {
-		log.Errorf("could not create nfct: %v", err)
+		log.Error("create conntrack client", "err", err)
 		return err
 	}
 	defer nfct.Close()
 	sessions, err := nfct.Dump(ct.Conntrack, ct.IPv4)
 	if err != nil {
-		log.Errorf("could not dump sessions: %v", err)
+		log.Error("could not dump sessions", "err", err)
 		return err
 	}
+	destPortProtocol := make(map[uint16]uint8)
+	srcPortProtocol := make(map[uint16]uint8)
+
+	if destinationPorts != "" {
+		fixedPorts := strings.Split(destinationPorts, ",")
+
+		for _, fixedPort := range fixedPorts {
+
+			data := strings.Split(fixedPort, ":")
+			if len(data) == 0 {
+				continue
+			}
+			port, err := strconv.ParseUint(data[1], 10, 16)
+			if err != nil {
+				return fmt.Errorf("[egress] error parsing annotaion [%s]", destinationPorts)
+			}
+			switch data[0] {
+			case strings.ToLower("udp"):
+				destPortProtocol[uint16(port)] = ProtocolUDP
+			case strings.ToLower("tcp"):
+				destPortProtocol[uint16(port)] = ProtocolTCP
+			case strings.ToLower("sctp"):
+				destPortProtocol[uint16(port)] = ProtocolSCTP
+			default:
+				log.Error("[egress] annotation protocol isn't supported", "protocol ID", data[0])
+			}
+		}
+	}
+
+	if srcPorts != "" {
+		fixedPorts := strings.Split(srcPorts, ",")
+
+		for _, fixedPort := range fixedPorts {
+
+			data := strings.Split(fixedPort, ":")
+			if len(data) == 0 {
+				continue
+			}
+			port, err := strconv.ParseUint(data[1], 10, 16)
+			if err != nil {
+				return fmt.Errorf("[egress] error parsing annotaion [%s]", srcPorts)
+			}
+			switch data[0] {
+			case strings.ToLower("udp"):
+				srcPortProtocol[uint16(port)] = ProtocolUDP
+			case strings.ToLower("tcp"):
+				srcPortProtocol[uint16(port)] = ProtocolTCP
+			case strings.ToLower("sctp"):
+				srcPortProtocol[uint16(port)] = ProtocolSCTP
+			default:
+				log.Error("[egress] annotation protocol isn't supported", "protocol ID", data[0])
+			}
+		}
+	}
+
 	// by default we only clear source (i.e. connections going from the vip (egress))
 	if !destination {
 		for _, session := range sessions {
-			//fmt.Printf("Looking for [%s] found [%s]\n", podIP, session.Origin.Dst.String())
-
+			//session.Origin.Proto
 			if session.Origin.Src.String() == sessionIP /*&& *session.Origin.Proto.DstPort == uint16(destinationPort)*/ {
-				//fmt.Printf("Source -> %s  Destination -> %s:%d\n", session.Origin.Src.String(), session.Origin.Dst.String(), *session.Origin.Proto.DstPort)
-				err = nfct.Delete(ct.Conntrack, ct.IPv4, session)
+				if destinationPorts != "" {
+					proto := destPortProtocol[*session.Origin.Proto.DstPort]
+					if proto == *session.Origin.Proto.Number {
+						log.Info("[egress] cleaning existing connection", "src", session.Origin.Src.String(), "dst", session.Origin.Dst.String(), "dst port", *session.Origin.Proto.DstPort, "protocol", *session.Origin.Proto.Number)
+						err = nfct.Delete(ct.Conntrack, ct.IPv4, session)
+					}
+				} else {
+					err = nfct.Delete(ct.Conntrack, ct.IPv4, session)
+				}
 				if err != nil {
-					log.Errorf("could not delete sessions: %v", err)
+					log.Error("could not delete sessions", "err", err)
 				}
 			}
 		}
@@ -184,10 +297,17 @@ func DeleteExistingSessions(sessionIP string, destination bool) error {
 			//fmt.Printf("Looking for [%s] found [%s]\n", podIP, session.Origin.Dst.String())
 
 			if session.Origin.Dst.String() == sessionIP /*&& *session.Origin.Proto.DstPort == uint16(destinationPort)*/ {
-				//fmt.Printf("Source -> %s  Destination -> %s:%d\n", session.Origin.Src.String(), session.Origin.Dst.String(), *session.Origin.Proto.DstPort)
-				err = nfct.Delete(ct.Conntrack, ct.IPv4, session)
+				if srcPorts != "" {
+					proto := srcPortProtocol[*session.Origin.Proto.DstPort]
+					if proto == *session.Origin.Proto.Number {
+						log.Info("[egress] cleaning existing connection", "src", session.Origin.Src.String(), "dst", session.Origin.Dst.String(), "dst port", *session.Origin.Proto.DstPort, "protocol", *session.Origin.Proto.Number)
+						err = nfct.Delete(ct.Conntrack, ct.IPv4, session)
+					}
+				} else {
+					err = nfct.Delete(ct.Conntrack, ct.IPv4, session)
+				}
 				if err != nil {
-					log.Errorf("could not delete sessions: %v", err)
+					log.Error("could not delete sessions", "err", err)
 				}
 			}
 		}
@@ -199,13 +319,13 @@ func DeleteExistingSessions(sessionIP string, destination bool) error {
 // Debug functions
 
 func (e *Egress) DumpChain(name string) error {
-	log.Infof("Dumping chain [%s]", name)
+	log.Info("Dumping chain", "name", name)
 	c, err := e.ipTablesClient.List("mangle", name)
 	if err != nil {
 		return err
 	}
 	for x := range c {
-		log.Infof("Rule -> %s", c[x])
+		log.Info("", "rule", c[x])
 	}
 	return nil
 }
@@ -216,16 +336,16 @@ func (e *Egress) CleanIPtables() error {
 		return err
 	}
 	foundNatRules := e.findRules(natRules)
-	log.Warnf("[egress] Cleaning [%d] dangling postrouting nat rules", len(foundNatRules))
+	log.Warn("[egress] Cleaning dangling postrouting nat rules", "rulecount", len(foundNatRules))
 	for x := range foundNatRules {
 		err = e.ipTablesClient.Delete("nat", "POSTROUTING", foundNatRules[x][2:]...)
 		if err != nil {
-			log.Errorf("[egress] Error removing rule [%v]", err)
+			log.Error("[egress] Error removing rule", "err", err)
 		}
 	}
 	exists, err := e.CheckMangleChain(MangleChainName)
 	if err != nil {
-		log.Debugf("[egress] No Mangle chain exists [%v]", err)
+		log.Debug("[egress] No Mangle chain exists", "err", err)
 	}
 	if exists {
 		mangleRules, err := e.ipTablesClient.List("mangle", MangleChainName)
@@ -233,11 +353,11 @@ func (e *Egress) CleanIPtables() error {
 			return err
 		}
 		foundNatRules = e.findRules(mangleRules)
-		log.Warnf("[egress] Cleaning [%d] dangling prerouting mangle rules", len(foundNatRules))
+		log.Warn("[egress] Cleaning dangling prerouting mangle rules", "rulecount", len(foundNatRules))
 		for x := range foundNatRules {
 			err = e.ipTablesClient.Delete("mangle", MangleChainName, foundNatRules[x][2:]...)
 			if err != nil {
-				log.Errorf("[egress] Error removing rule [%v]", err)
+				log.Error("[egress] Error removing rule", "err", err)
 			}
 		}
 
@@ -249,7 +369,7 @@ func (e *Egress) CleanIPtables() error {
 		// 	log.Errorf("[egress] Error removing flushing table [%v]", err)
 		// }
 	} else {
-		log.Warnf("No existing mangle chain [%s] exists", MangleChainName)
+		log.Warn("No existing mangle chain exists", "chain name", MangleChainName)
 	}
 	return nil
 }
@@ -269,4 +389,34 @@ func (e *Egress) findRules(rules []string) [][]string {
 	}
 
 	return foundRules
+}
+
+func (e *Egress) findExistingVIP(rules []string, vip string) [][]string {
+	var foundRules [][]string
+
+	for i := range rules {
+		r := strings.Split(rules[i], " ")
+		for x := range r {
+			// Look for a vip already in a post Routing rule
+			if r[x] == vip {
+				foundRules = append(foundRules, r)
+			}
+		}
+	}
+
+	return foundRules
+}
+
+func ClearIPTables(useNftables bool, namespace string, protocol iptables.Protocol) {
+	i, err := CreateIptablesClient(useNftables, namespace, protocol)
+	if err != nil {
+		log.Warn("[egress] Unable to clean any dangling egress rules", "err", err)
+		log.Warn("[egress] Can be ignored in non iptables release of kube-vip")
+	} else {
+		log.Info("[egress] Cleaning any dangling kube-vip egress rules")
+		cleanErr := i.CleanIPtables()
+		if cleanErr != nil {
+			log.Error("Error cleaning rules", "err", cleanErr)
+		}
+	}
 }

@@ -1,3 +1,8 @@
 .idea
+.arg
 kube-vip
 .vscode
+bin
+testing/e2e/etcd/certs
+pkg/etcd/etcd.pid
+pkg/etcd/etcd-data

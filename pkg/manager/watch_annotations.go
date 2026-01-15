@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
 
-	"github.com/kube-vip/kube-vip/pkg/bgp"
-	log "github.com/sirupsen/logrus"
+	log "log/slog"
+
+	"github.com/kube-vip/kube-vip/pkg/kubevip"
 
 	"github.com/davecgh/go-spew/spew"
 	v1 "k8s.io/api/core/v1"
@@ -27,13 +27,9 @@ import (
 // present
 func (sm *Manager) annotationsWatcher() error {
 	// Use a restartable watcher, as this should help in the event of etcd or timeout issues
-	log.Infof("Kube-Vip is waiting for annotation prefix [%s] to be present on this node", sm.config.Annotations)
-	hostname, err := os.Hostname()
-	if err != nil {
-		return err
-	}
+	log.Info("Kube-Vip is waiting for annotation prefix to be present on this node", "prefix", sm.config.Annotations)
 
-	labelSelector := metav1.LabelSelector{MatchLabels: map[string]string{"kubernetes.io/hostname": hostname}}
+	labelSelector := metav1.LabelSelector{MatchLabels: map[string]string{"kubernetes.io/hostname": sm.config.NodeName}}
 	listOptions := metav1.ListOptions{
 		LabelSelector: labels.Set(labelSelector.MatchLabels).String(),
 	}
@@ -49,7 +45,7 @@ func (sm *Manager) annotationsWatcher() error {
 	// there's probably bigger problems
 	node := nodeList.Items[0]
 
-	bgpConfig, bgpPeer, err := parseBgpAnnotations(&node, sm.config.Annotations)
+	bgpConfig, bgpPeer, err := parseBgpAnnotations(sm.config.BGPConfig, &node, sm.config.Annotations)
 	if err == nil {
 		// No error, the annotations already exist
 		sm.config.BGPConfig = bgpConfig
@@ -59,11 +55,12 @@ func (sm *Manager) annotationsWatcher() error {
 
 	// We got an error with the annotations, falling back to the watch until
 	// they're as needed
-	log.Warn(err)
+	log.Warn(err.Error())
 
-	rw, err := watchtools.NewRetryWatcher(node.ResourceVersion, &cache.ListWatch{
-		WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
-			return sm.clientSet.CoreV1().Nodes().Watch(context.Background(), listOptions)
+	// TODO, will need refactoring as part of rikatz work
+	rw, err := watchtools.NewRetryWatcherWithContext(context.TODO(), node.ResourceVersion, &cache.ListWatch{
+		WatchFunc: func(_ metav1.ListOptions) (watch.Interface, error) {
+			return sm.rwClientSet.CoreV1().Nodes().Watch(context.Background(), listOptions)
 		},
 	})
 	if err != nil {
@@ -97,9 +94,9 @@ func (sm *Manager) annotationsWatcher() error {
 				return fmt.Errorf("unable to parse Kubernetes Node from Annotation watcher")
 			}
 
-			bgpConfig, bgpPeer, err := parseBgpAnnotations(node, sm.config.Annotations)
+			bgpConfig, bgpPeer, err := parseBgpAnnotations(sm.config.BGPConfig, node, sm.config.Annotations)
 			if err != nil {
-				log.Error(err)
+				log.Error(err.Error())
 				continue
 			}
 
@@ -113,7 +110,7 @@ func (sm *Manager) annotationsWatcher() error {
 				return fmt.Errorf("unable to parse Kubernetes Node from Kubernetes watcher")
 			}
 
-			log.Infof("Node [%s] has been deleted", node.Name)
+			log.Info("Node has been deleted", "name", node.Name)
 
 		case watch.Bookmark:
 			// Un-used
@@ -124,17 +121,17 @@ func (sm *Manager) annotationsWatcher() error {
 			errObject := apierrors.FromObject(event.Object)
 			statusErr, ok := errObject.(*apierrors.StatusError)
 			if !ok {
-				log.Errorf(spew.Sprintf("Received an error which is not *metav1.Status but %#+v", event.Object))
+				log.Error(spew.Sprintf("Received an error which is not *metav1.Status but %#+v", event.Object))
 
 			}
 
 			status := statusErr.ErrStatus
-			log.Errorf("%v", status)
+			log.Error(status.String())
 		default:
 		}
 	}
 	close(exitFunction)
-	log.Infoln("Exiting Annotations watcher")
+	log.Info("Exiting Annotations watcher")
 	return nil
 
 }
@@ -142,6 +139,9 @@ func (sm *Manager) annotationsWatcher() error {
 // parseNodeAnnotations parses the annotations on the node and updates the configuration
 // returning an error if the annotations are not valid or missing; and nil if everything is OK
 // to continue
+//
+// Parsed annotation config overlays config in passed bgpConfig in order to preserve configs
+// set by other means with the exception that bgpConfig.Peers is overwritten.
 //
 // The regex expression for each annotation ensures (at least in terms of annotations) backwards
 // compatibility with the Equinix Metal annotation format changed in
@@ -151,9 +151,8 @@ func (sm *Manager) annotationsWatcher() error {
 // * `<info>` is the relevant information, such as `node-asn` or `peer-ip`
 // * `{{n}}` is the number of the peer, always starting with `0`
 // * kube-vip is only designed to manage one peer, just look for {{n}} == 0
-func parseBgpAnnotations(node *v1.Node, prefix string) (bgp.Config, bgp.Peer, error) {
-	bgpConfig := bgp.Config{}
-	bgpPeer := bgp.Peer{}
+func parseBgpAnnotations(bgpConfig kubevip.BGPConfig, node *v1.Node, prefix string) (kubevip.BGPConfig, kubevip.BGPPeer, error) {
+	bgpPeer := kubevip.BGPPeer{}
 
 	nodeASN := ""
 	for k, v := range node.Annotations {
@@ -217,6 +216,7 @@ func parseBgpAnnotations(node *v1.Node, prefix string) (bgp.Config, bgp.Peer, er
 
 	peerIPs := strings.Split(peerIPString, ",")
 
+	bgpConfig.Peers = make([]kubevip.BGPPeer, 0, len(peerIPs))
 	for _, peerIP := range peerIPs {
 		ipAddr := strings.TrimSpace(peerIP)
 
