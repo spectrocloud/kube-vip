@@ -1,4 +1,5 @@
 .idea
+.arg
 kube-vip
 .vscode
 bin

@@ -1,3 +1,5 @@
+-include .arg
+
 SHELL := /bin/sh
 
 # The name of the executable (default is current directory name)
