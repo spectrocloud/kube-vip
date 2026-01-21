@@ -35,8 +35,8 @@ jobs:
           FIPS_ENABLE: ${{ matrix.fips }}
         run: |
           if [ ${{ matrix.fips }} = "yes" ]; then
-            export REPOSITORY=us-docker.pkg.dev/palette-images-fips/edge
+            export REPOSITORY=us-docker.pkg.dev/palette-images-fips/k8s/edge
           else
-            export REPOSITORY=us-docker.pkg.dev/palette-images/edge
+            export REPOSITORY=us-docker.pkg.dev/palette-images/k8s/edge
           fi
           make docker
