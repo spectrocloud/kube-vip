@@ -134,14 +134,16 @@ func NewConfig(address string, iface string, loGlobalScope bool, subnet string, 
 			return networks, errors.Wrapf(err, "could not parse address '%s'", address)
 		}
 
-		// For IPv6 only: set address as deprecated so it isn't used as source address
-		// according to RFC 3484/6724. Skip for IPv4 to avoid systemd-resolved excluding
-		// the interface from DNS scope when VIP equals host IP (AddrReplace overwrites).
+		// Set address lifetimes. ValidLft must be set for netlink to apply them.
+		// For IPv6: PreferedLft=0 marks deprecated so kernel avoids it as source (RFC 3484/6724).
+		// For IPv4: PreferedLft must be non-zero or kernel marks deprecated; avoid that to prevent
+		// systemd-resolved excluding the interface from DNS scope when VIP equals host IP.
+		result.address.ValidLft = math.MaxInt
 		if utils.IsIPv6(result.address.IP.String()) {
 			result.address.PreferedLft = 0
+		} else {
+			result.address.PreferedLft = math.MaxInt
 		}
-		// Also set ValidLft so the netlink library actually sets them
-		result.address.ValidLft = math.MaxInt
 
 		if iface == "lo" && !loGlobalScope {
 			// set host scope on loopback, otherwise global scope will be used by default
@@ -226,11 +228,11 @@ func NewConfig(address string, iface string, loGlobalScope bool, subnet string, 
 			}
 			// set ValidLft so that the VIP expires if the DNS entry is updated, otherwise it'll be refreshed by the DNS prober
 			result.address.ValidLft = defaultValidLft
-
-			// For IPv6 only: set address as deprecated so it isn't used as source address
-			// according to RFC 3484/6724. Skip for IPv4 to avoid systemd-resolved DNS regression.
+			// For IPv6: PreferedLft=0 marks deprecated. For IPv4: must be non-zero to avoid deprecated.
 			if utils.IsIPv6(result.address.IP.String()) {
 				result.address.PreferedLft = 0
+			} else {
+				result.address.PreferedLft = defaultValidLft
 			}
 
 			result.dhcpFamily = strings.ToLower(utils.IPv6Family)
@@ -747,11 +749,11 @@ func (configurator *network) SetIP(ip string) error {
 	} else {
 		addr.ValidLft = math.MaxInt
 	}
-
-	// For IPv6 only: set address as deprecated so it isn't used as source address
-	// according to RFC 3484/6724. Skip for IPv4 to avoid systemd-resolved DNS regression.
+	// For IPv6: PreferedLft=0 marks deprecated. For IPv4: must be non-zero to avoid deprecated.
 	if utils.IsIPv6(addr.IP.String()) {
 		addr.PreferedLft = 0
+	} else {
+		addr.PreferedLft = addr.ValidLft
 	}
 
 	configurator.address = addr
