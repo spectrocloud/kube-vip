@@ -134,9 +134,12 @@ func NewConfig(address string, iface string, loGlobalScope bool, subnet string, 
 			return networks, errors.Wrapf(err, "could not parse address '%s'", address)
 		}
 
-		// set address as deprecated so it isn't used as source address according to RFC 3484
-		result.address.PreferedLft = 0
-
+		// For IPv6 only: set address as deprecated so it isn't used as source address
+		// according to RFC 3484/6724. Skip for IPv4 to avoid systemd-resolved excluding
+		// the interface from DNS scope when VIP equals host IP (AddrReplace overwrites).
+		if utils.IsIPv6(result.address.IP.String()) {
+			result.address.PreferedLft = 0
+		}
 		// Also set ValidLft so the netlink library actually sets them
 		result.address.ValidLft = math.MaxInt
 
@@ -224,8 +227,11 @@ func NewConfig(address string, iface string, loGlobalScope bool, subnet string, 
 			// set ValidLft so that the VIP expires if the DNS entry is updated, otherwise it'll be refreshed by the DNS prober
 			result.address.ValidLft = defaultValidLft
 
-			// set address as deprecated so it isn't used as source address according to RFC 3484
-			result.address.PreferedLft = 0
+			// For IPv6 only: set address as deprecated so it isn't used as source address
+			// according to RFC 3484/6724. Skip for IPv4 to avoid systemd-resolved DNS regression.
+			if utils.IsIPv6(result.address.IP.String()) {
+				result.address.PreferedLft = 0
+			}
 
 			result.dhcpFamily = strings.ToLower(utils.IPv6Family)
 			if net.ParseIP(ip).To4() != nil {
@@ -742,8 +748,11 @@ func (configurator *network) SetIP(ip string) error {
 		addr.ValidLft = math.MaxInt
 	}
 
-	// set address as deprecated so it isn't used as source address according to RFC 3484
-	addr.PreferedLft = 0
+	// For IPv6 only: set address as deprecated so it isn't used as source address
+	// according to RFC 3484/6724. Skip for IPv4 to avoid systemd-resolved DNS regression.
+	if utils.IsIPv6(addr.IP.String()) {
+		addr.PreferedLft = 0
+	}
 
 	configurator.address = addr
 	return nil
