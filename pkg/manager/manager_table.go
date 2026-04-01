@@ -99,6 +99,7 @@ func (sm *Manager) startTableMode(id string) error {
 
 			if sm.config.EnableServices {
 				sm.cleanupStaleKubeVipHostRoutes()
+				go sm.runSharedLeaseServiceInterfaceWatch(ctx)
 			}
 
 			// start the leader election code loop
@@ -116,6 +117,7 @@ func (sm *Manager) startTableMode(id string) error {
 				RetryPeriod:     time.Duration(sm.config.RetryPeriod) * time.Second,
 				Callbacks: leaderelection.LeaderCallbacks{
 					OnStartedLeading: func(ctx context.Context) {
+						sm.serviceLeaseHeld.Store(true)
 						err = sm.svcProcessor.ServicesWatcher(ctx, sm.svcProcessor.SyncServices)
 						if err != nil {
 							log.Error(err.Error())
@@ -124,6 +126,7 @@ func (sm *Manager) startTableMode(id string) error {
 					},
 					OnStoppedLeading: func() {
 						// we can do cleanup here
+						sm.serviceLeaseHeld.Store(false)
 						sm.mutex.Lock()
 						log.Info("leader lost", "id", id)
 						sm.svcProcessor.Stop()
@@ -139,9 +142,10 @@ func (sm *Manager) startTableMode(id string) error {
 					OnNewLeader: func(identity string) {
 						// we're notified when new leader elected
 						if identity == id {
-							// I just got the lock
+							sm.serviceLeaseHeld.Store(true)
 							return
 						}
+						sm.serviceLeaseHeld.Store(false)
 						if sm.skipRepeatedNonSelfServiceLeader(identity) {
 							return
 						}

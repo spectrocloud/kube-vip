@@ -122,6 +122,7 @@ func (sm *Manager) startARP(id string) error {
 		// Drop stale host routes from a previous run before joining election (restart / race before lease renew).
 		if sm.config.EnableServices {
 			sm.cleanupStaleKubeVipHostRoutes()
+			go sm.runSharedLeaseServiceInterfaceWatch(ctx)
 		}
 
 		// start the leader election code loop
@@ -139,6 +140,7 @@ func (sm *Manager) startARP(id string) error {
 			RetryPeriod:     time.Duration(sm.config.RetryPeriod) * time.Second,
 			Callbacks: leaderelection.LeaderCallbacks{
 				OnStartedLeading: func(ctx context.Context) {
+					sm.serviceLeaseHeld.Store(true)
 					err = sm.svcProcessor.ServicesWatcher(ctx, sm.svcProcessor.SyncServices)
 					if err != nil {
 						log.Error("service watcher", "err", err)
@@ -147,6 +149,7 @@ func (sm *Manager) startARP(id string) error {
 				},
 				OnStoppedLeading: func() {
 					// we can do cleanup here
+					sm.serviceLeaseHeld.Store(false)
 					sm.mutex.Lock()
 					log.Info("leader lost", "new leader", id)
 					sm.svcProcessor.Stop()
@@ -166,9 +169,10 @@ func (sm *Manager) startARP(id string) error {
 						applyNodeLabel(sm.clientSet, sm.config.Address, id, identity)
 					}
 					if identity == id {
-						// I just got the lock
+						sm.serviceLeaseHeld.Store(true)
 						return
 					}
+					sm.serviceLeaseHeld.Store(false)
 					if sm.skipRepeatedNonSelfServiceLeader(identity) {
 						return
 					}

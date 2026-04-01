@@ -68,6 +68,9 @@ type Manager struct {
 	// Used while exactly one of startARP / startTableMode / startWireguard runs per process.
 	lastObservedNonSelfLeader atomic.Value
 
+	// serviceLeaseHeld is true while this replica holds the shared services lease (plndr-svcs-lock path).
+	serviceLeaseHeld atomic.Bool
+
 	// This tracks used network interfaces and guards them with mutex for concurrent changes.
 	intfMgr *networkinterface.Manager
 
@@ -350,6 +353,28 @@ func (sm *Manager) skipRepeatedNonSelfServiceLeader(identity string) bool {
 	}
 	sm.lastObservedNonSelfLeader.Store(identity)
 	return false
+}
+
+// runSharedLeaseServiceInterfaceWatch scrubs stale /32 and /128 on followers and reconciles
+// the service interface on the leader so addresses not in active instances cannot linger.
+func (sm *Manager) runSharedLeaseServiceInterfaceWatch(ctx context.Context) {
+	t := time.NewTicker(30 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if !sm.config.EnableServices || sm.config.PreserveVIPOnLeadershipLoss {
+				continue
+			}
+			if !sm.serviceLeaseHeld.Load() {
+				sm.cleanupStaleKubeVipHostRoutes()
+			} else {
+				sm.reconcileLeaderServiceHostRoutes()
+			}
+		}
+	}
 }
 
 func returnNameSpace() (string, error) {

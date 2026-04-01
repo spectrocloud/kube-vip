@@ -353,6 +353,15 @@ func (p *Processor) Stop() {
 	}
 }
 
+// ServiceInstancesSnapshot returns a copy of current instances for read-only use (e.g. reconciliation).
+func (p *Processor) ServiceInstancesSnapshot() []*instance.Instance {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	out := make([]*instance.Instance, len(p.ServiceInstances))
+	copy(out, p.ServiceInstances)
+	return out
+}
+
 func (p *Processor) getServiceContext(uid types.UID) (*servicecontext.Context, error) {
 	svcCtx, ok := p.svcMap.Load(uid)
 	if !ok {
