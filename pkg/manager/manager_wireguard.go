@@ -133,11 +133,13 @@ func (sm *Manager) startWireguard(id string) error {
 					if sm.skipRepeatedNonSelfServiceLeader(identity) {
 						return
 					}
-					sm.mutex.Lock()
-					sm.svcProcessor.Stop()
-					sm.mutex.Unlock()
-					if sm.config.EnableServices && !sm.config.PreserveVIPOnLeadershipLoss {
-						sm.cleanupStaleKubeVipHostRoutes()
+					if sm.config.EnableServices {
+						sm.mutex.Lock()
+						sm.svcProcessor.Stop()
+						sm.mutex.Unlock()
+						if !sm.config.PreserveVIPOnLeadershipLoss {
+							sm.cleanupStaleKubeVipHostRoutes()
+						}
 					}
 					log.Info("new leader elected", "id", identity)
 				},
