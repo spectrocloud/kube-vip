@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -61,6 +62,11 @@ type Manager struct {
 
 	// This mutex is to protect calls from various goroutines
 	mutex sync.Mutex
+
+	// lastObservedNonSelfLeader holds the last non-self leader identity from OnNewLeader
+	// (string) so duplicate lease notifications do not re-run Stop/cleanup.
+	// Used while exactly one of startARP / startTableMode / startWireguard runs per process.
+	lastObservedNonSelfLeader atomic.Value
 
 	// This tracks used network interfaces and guards them with mutex for concurrent changes.
 	intfMgr *networkinterface.Manager
@@ -331,6 +337,19 @@ func (sm *Manager) Start() error {
 
 	log.Error("prematurely exiting Load-balancer as no modes [ARP/BGP/Wireguard] are enabled")
 	return nil
+}
+
+// skipRepeatedNonSelfServiceLeader returns true when identity matches the last non-self
+// leader we already handled (duplicate OnNewLeader notifications).
+// Skips the trailing "new leader elected" Info log by design; see Debug for repeats.
+func (sm *Manager) skipRepeatedNonSelfServiceLeader(identity string) bool {
+	v := sm.lastObservedNonSelfLeader.Load()
+	if prev, ok := v.(string); ok && prev == identity {
+		log.Debug("OnNewLeader duplicate observation skipped", "leader", identity)
+		return true
+	}
+	sm.lastObservedNonSelfLeader.Store(identity)
+	return false
 }
 
 func returnNameSpace() (string, error) {

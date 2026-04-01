@@ -343,6 +343,8 @@ func (p *Processor) Delete(event watch.Event) (bool, error) {
 	return true, nil
 }
 
+// Stop blocks until each service cluster has finished teardown (cluster.Stop waits on
+// the service shutdown goroutine, including DeleteIP when PreserveVIPOnLeadershipLoss is false).
 func (p *Processor) Stop() {
 	for _, instance := range p.ServiceInstances {
 		for _, cluster := range instance.Clusters {

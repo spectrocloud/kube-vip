@@ -96,6 +96,11 @@ func (sm *Manager) startTableMode(id string) error {
 					Identity: id,
 				},
 			}
+
+			if sm.config.EnableServices {
+				sm.cleanupStaleKubeVipHostRoutes()
+			}
+
 			// start the leader election code loop
 			leaderelection.RunOrDie(ctx, leaderelection.LeaderElectionConfig{
 				Lock: lock,
@@ -120,9 +125,13 @@ func (sm *Manager) startTableMode(id string) error {
 					OnStoppedLeading: func() {
 						// we can do cleanup here
 						sm.mutex.Lock()
-						defer sm.mutex.Unlock()
 						log.Info("leader lost", "id", id)
 						sm.svcProcessor.Stop()
+						sm.mutex.Unlock()
+
+						if sm.config.EnableServices && !sm.config.PreserveVIPOnLeadershipLoss {
+							sm.cleanupStaleKubeVipHostRoutes()
+						}
 
 						log.Error("lost leadership, restarting kube-vip")
 						panic("")
@@ -132,6 +141,15 @@ func (sm *Manager) startTableMode(id string) error {
 						if identity == id {
 							// I just got the lock
 							return
+						}
+						if sm.skipRepeatedNonSelfServiceLeader(identity) {
+							return
+						}
+						sm.mutex.Lock()
+						sm.svcProcessor.Stop()
+						sm.mutex.Unlock()
+						if sm.config.EnableServices && !sm.config.PreserveVIPOnLeadershipLoss {
+							sm.cleanupStaleKubeVipHostRoutes()
 						}
 						log.Info("new leader elected", "id", identity)
 					},

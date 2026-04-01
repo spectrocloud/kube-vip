@@ -119,6 +119,11 @@ func (sm *Manager) startARP(id string) error {
 			},
 		}
 
+		// Drop stale host routes from a previous run before joining election (restart / race before lease renew).
+		if sm.config.EnableServices {
+			sm.cleanupStaleKubeVipHostRoutes()
+		}
+
 		// start the leader election code loop
 		leaderelection.RunOrDie(ctx, leaderelection.LeaderElectionConfig{
 			Lock: lock,
@@ -143,9 +148,14 @@ func (sm *Manager) startARP(id string) error {
 				OnStoppedLeading: func() {
 					// we can do cleanup here
 					sm.mutex.Lock()
-					defer sm.mutex.Unlock()
 					log.Info("leader lost", "new leader", id)
 					sm.svcProcessor.Stop()
+					sm.mutex.Unlock()
+
+					// Netlink cleanup must not run under sm.mutex (avoids re-entrancy if Stop paths ever take the lock).
+					if sm.config.EnableServices && !sm.config.PreserveVIPOnLeadershipLoss {
+						sm.cleanupStaleKubeVipHostRoutes()
+					}
 
 					log.Error("lost leadership, restarting kube-vip")
 					panic("") // TODO: - emulating log.fatal here
@@ -158,6 +168,19 @@ func (sm *Manager) startARP(id string) error {
 					if identity == id {
 						// I just got the lock
 						return
+					}
+					if sm.skipRepeatedNonSelfServiceLeader(identity) {
+						return
+					}
+					// Tear down local service VIPs as soon as another member becomes leader (matches v0.6.3
+					// OnStoppedLeading behavior but runs earlier in the handoff, reducing dual-bind races).
+					if sm.config.EnableServices {
+						sm.mutex.Lock()
+						sm.svcProcessor.Stop()
+						sm.mutex.Unlock()
+						if !sm.config.PreserveVIPOnLeadershipLoss {
+							sm.cleanupStaleKubeVipHostRoutes()
+						}
 					}
 					log.Info("new leader elected", "new leader", identity)
 				},
