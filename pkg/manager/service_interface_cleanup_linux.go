@@ -45,6 +45,7 @@ func (sm *Manager) cleanupStaleKubeVipHostRoutes() {
 	}
 
 	preserve := sm.addrsToPreserveDuringInterfaceCleanup()
+	primaryKeys := nonHostPrefixIPKeys(addrs)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
@@ -62,6 +63,15 @@ func (sm *Manager) cleanupStaleKubeVipHostRoutes() {
 
 		ones, bits := a.Mask.Size()
 		if bits == 0 || ones != bits {
+			continue
+		}
+
+		// e.g. 10.x/18 + kube-vip added 10.x/32 — drop the host route (no K8s API needed).
+		if hostRouteShadowsPrimaryPrefix(ip, primaryKeys) {
+			log.Info("cleanup: removing host route shadowing primary prefix on same interface", "ip", ip.String(), "iface", iface)
+			if err := netlink.AddrDel(link, a); err != nil {
+				log.Warn("cleanup: failed to remove address", "ip", ip.String(), "iface", iface, "err", err)
+			}
 			continue
 		}
 
@@ -189,6 +199,8 @@ func (sm *Manager) reconcileLeaderServiceHostRoutes() {
 		}
 	}
 
+	primaryKeys := nonHostPrefixIPKeys(addrs)
+
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	otherNodeIPs, selfIPs := sm.nodeInternalIPMaps(ctx)
@@ -201,6 +213,13 @@ func (sm *Manager) reconcileLeaderServiceHostRoutes() {
 		}
 		ones, bits := a.Mask.Size()
 		if bits == 0 || ones != bits {
+			continue
+		}
+		if hostRouteShadowsPrimaryPrefix(ip, primaryKeys) {
+			log.Info("reconcile: removing host route shadowing primary prefix on same interface", "ip", ip.String(), "iface", iface)
+			if err := netlink.AddrDel(link, a); err != nil {
+				log.Warn("reconcile: failed to remove address", "ip", ip.String(), "iface", iface, "err", err)
+			}
 			continue
 		}
 		if remove, why := sm.hostRouteRemovedForNodeIPRules(ip, otherNodeIPs, selfIPs); remove {
@@ -228,7 +247,7 @@ func (sm *Manager) nodeInternalIPMaps(ctx context.Context) (other map[string]str
 	}
 	nodes, err := sm.clientSet.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err != nil {
-		log.Debug("node IP maps: list nodes", "err", err)
+		log.Warn("node IP maps: list nodes failed; node-based cleanup rules skipped", "err", err)
 		return other, self
 	}
 	for i := range nodes.Items {
@@ -257,4 +276,28 @@ func (sm *Manager) hostRouteRemovedForNodeIPRules(ip net.IP, otherNodeIPs, selfI
 		return true, "duplicate_host_route_of_this_nodes_internal_ip"
 	}
 	return false, ""
+}
+
+// nonHostPrefixIPKeys returns IPs that have at least one non-host-route address on the link
+// (e.g. /18). Used to find bogus secondary /32|/128 aliases of the same IP.
+func nonHostPrefixIPKeys(addrs []netlink.Addr) map[string]struct{} {
+	m := make(map[string]struct{})
+	for i := range addrs {
+		a := &addrs[i]
+		ip := a.IP
+		if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+			continue
+		}
+		ones, bits := a.Mask.Size()
+		if bits == 0 || ones == bits {
+			continue
+		}
+		m[ip.String()] = struct{}{}
+	}
+	return m
+}
+
+func hostRouteShadowsPrimaryPrefix(ip net.IP, primaryKeys map[string]struct{}) bool {
+	_, ok := primaryKeys[ip.String()]
+	return ok
 }

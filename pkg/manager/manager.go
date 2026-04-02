@@ -358,6 +358,7 @@ func (sm *Manager) skipRepeatedNonSelfServiceLeader(identity string) bool {
 // runSharedLeaseServiceInterfaceWatch scrubs stale /32 and /128 on followers and reconciles
 // the service interface on the leader so addresses not in active instances cannot linger.
 func (sm *Manager) runSharedLeaseServiceInterfaceWatch(ctx context.Context) {
+	sm.runSharedLeaseServiceInterfaceOnce()
 	t := time.NewTicker(30 * time.Second)
 	defer t.Stop()
 	for {
@@ -365,15 +366,19 @@ func (sm *Manager) runSharedLeaseServiceInterfaceWatch(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if !sm.config.EnableServices || sm.config.PreserveVIPOnLeadershipLoss {
-				continue
-			}
-			if !sm.serviceLeaseHeld.Load() {
-				sm.cleanupStaleKubeVipHostRoutes()
-			} else {
-				sm.reconcileLeaderServiceHostRoutes()
-			}
+			sm.runSharedLeaseServiceInterfaceOnce()
 		}
+	}
+}
+
+func (sm *Manager) runSharedLeaseServiceInterfaceOnce() {
+	if !sm.config.EnableServices || sm.config.PreserveVIPOnLeadershipLoss {
+		return
+	}
+	if !sm.serviceLeaseHeld.Load() {
+		sm.cleanupStaleKubeVipHostRoutes()
+	} else {
+		sm.reconcileLeaderServiceHostRoutes()
 	}
 }
 
