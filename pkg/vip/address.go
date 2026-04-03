@@ -848,16 +848,21 @@ func GarbageCollect(adapter, address string, intfMgr *networkinterface.Manager) 
 		return false, err
 	}
 
-	// Compare all addresses to new service address, and remove if needed
+	// Compare all addresses to new service address, and remove kube-vip-style aliases only.
+	// Match IP only on secondary /32 (IPv4) or /128 (IPv6) addresses; never delete a primary
+	// prefix on the same IP (e.g. DHCP /18), or garbage collection would strip the node address.
 	for _, existing := range addrs {
-		if existing.IP.String() == address {
-			// We've found the existing address
-			found = true
-			// linting issue
-			existing := existing
-			if err = netlink.AddrDel(l.Intf, &existing); err != nil {
-				return true, errors.Wrap(err, "could not delete ip")
-			}
+		if existing.IP.String() != address {
+			continue
+		}
+		found = true
+		ones, bits := existing.Mask.Size()
+		if bits == 0 || ones != bits {
+			continue
+		}
+		existing := existing
+		if err = netlink.AddrDel(l.Intf, &existing); err != nil {
+			return true, errors.Wrap(err, "could not delete ip")
 		}
 	}
 	return // Didn't find the address on the adapter

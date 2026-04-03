@@ -152,14 +152,15 @@ func (p *Processor) AddOrModify(ctx context.Context, event watch.Event, serviceF
 
 		}
 		if shouldGarbageCollect {
+			svcIf := p.serviceInterface()
 			for _, addr := range svcAddresses {
 				// log.Debugf("(svcs) Retrieving local addresses, to ensure that this modified address doesn't exist: %s", addr)
-				f, err := vip.GarbageCollect(p.config.Interface, addr, p.intfMgr)
+				f, err := vip.GarbageCollect(svcIf, addr, p.intfMgr)
 				if err != nil {
 					log.Error("(svcs) cleaning existing address error", "err", err)
 				}
 				if f {
-					log.Warn("(svcs) already found existing config", "address", addr, "adapter", p.config.Interface)
+					log.Warn("(svcs) already found existing config", "address", addr, "adapter", svcIf)
 				}
 			}
 			// This service has been modified, but it was also active.
