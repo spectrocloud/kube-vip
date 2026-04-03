@@ -66,16 +66,18 @@ func (sm *Manager) cleanupStaleKubeVipHostRoutes() {
 			continue
 		}
 
-		// e.g. 10.x/18 + kube-vip added 10.x/32 — drop the host route (no K8s API needed).
+		if preserve.contains(ip) {
+			continue
+		}
+
+		// Drop extra /32|/128 only when the same IP already has a longer prefix on the link (e.g. /18),
+		// and this address is not a configured/preserved VIP. Do not run before preserve — reconciling
+		// a real service VIP that matches the node IP would wrongly delete the VIP.
 		if hostRouteShadowsPrimaryPrefix(ip, primaryKeys) {
 			log.Info("cleanup: removing host route shadowing primary prefix on same interface", "ip", ip.String(), "iface", iface)
 			if err := netlink.AddrDel(link, a); err != nil {
 				log.Warn("cleanup: failed to remove address", "ip", ip.String(), "iface", iface, "err", err)
 			}
-			continue
-		}
-
-		if preserve.contains(ip) {
 			continue
 		}
 
@@ -215,6 +217,9 @@ func (sm *Manager) reconcileLeaderServiceHostRoutes() {
 		if bits == 0 || ones != bits {
 			continue
 		}
+		if _, ok := expected[ip.String()]; ok {
+			continue
+		}
 		if hostRouteShadowsPrimaryPrefix(ip, primaryKeys) {
 			log.Info("reconcile: removing host route shadowing primary prefix on same interface", "ip", ip.String(), "iface", iface)
 			if err := netlink.AddrDel(link, a); err != nil {
@@ -227,9 +232,6 @@ func (sm *Manager) reconcileLeaderServiceHostRoutes() {
 			if err := netlink.AddrDel(link, a); err != nil {
 				log.Warn("reconcile: failed to remove address", "ip", ip.String(), "iface", iface, "err", err)
 			}
-			continue
-		}
-		if _, ok := expected[ip.String()]; ok {
 			continue
 		}
 		log.Info("reconcile: removing stray host route not in active service VIPs", "ip", ip.String(), "iface", iface)
