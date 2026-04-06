@@ -16,6 +16,23 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// linuxKernelInfiniteLft is IFA_CACHEINFO "forever" (kube-vip programs math.MaxInt, truncated to uint32).
+const linuxKernelInfiniteLft = int(^uint32(0))
+
+// addrLftMatchesKubeVipStaticSecondary matches lifetimes set in pkg/vip/address.go for static service/control-plane VIPs.
+func addrLftMatchesKubeVipStaticSecondary(a *netlink.Addr, ip net.IP) bool {
+	if a == nil || ip == nil {
+		return false
+	}
+	if a.ValidLft == 0 && a.PreferedLft == 0 {
+		return false
+	}
+	if ip.To4() != nil {
+		return a.ValidLft == linuxKernelInfiniteLft && a.PreferedLft == linuxKernelInfiniteLft
+	}
+	return a.ValidLft == linuxKernelInfiniteLft && a.PreferedLft == 0
+}
+
 // cleanupStaleKubeVipHostRoutes removes secondary IPv4 /32 and IPv6 /128 addresses from the
 // kube-vip service interface. Primary prefixes (e.g. DHCP /18) are left intact.
 // Configured control-plane/static VIPs (Address, VIP) are not removed.
@@ -89,6 +106,10 @@ func (sm *Manager) cleanupStaleKubeVipHostRoutes() {
 			continue
 		}
 
+		if !addrLftMatchesKubeVipStaticSecondary(a, ip) {
+			log.Debug("cleanup: skip removing host route without kube-vip static lifetime fingerprint", "ip", ip.String(), "iface", iface)
+			continue
+		}
 		log.Info("cleanup: removing kube-vip-style host route from interface", "ip", ip.String(), "iface", iface)
 		if err := netlink.AddrDel(link, a); err != nil {
 			log.Warn("cleanup: failed to remove address", "ip", ip.String(), "iface", iface, "err", err)
@@ -232,6 +253,10 @@ func (sm *Manager) reconcileLeaderServiceHostRoutes() {
 			if err := netlink.AddrDel(link, a); err != nil {
 				log.Warn("reconcile: failed to remove address", "ip", ip.String(), "iface", iface, "err", err)
 			}
+			continue
+		}
+		if !addrLftMatchesKubeVipStaticSecondary(a, ip) {
+			log.Debug("reconcile: skip removing stray host route without kube-vip static lifetime fingerprint", "ip", ip.String(), "iface", iface)
 			continue
 		}
 		log.Info("reconcile: removing stray host route not in active service VIPs", "ip", ip.String(), "iface", iface)

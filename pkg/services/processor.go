@@ -4,8 +4,11 @@ import (
 	"context"
 	"fmt"
 	log "log/slog"
+	"net"
 	"reflect"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/kube-vip/kube-vip/pkg/arp"
 	"github.com/kube-vip/kube-vip/pkg/bgp"
@@ -20,6 +23,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/vishvananda/netlink"
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
@@ -113,7 +117,20 @@ func (p *Processor) AddOrModify(ctx context.Context, event watch.Event, serviceF
 		return true, nil
 	}
 
+	if p.config.ServicesRequireLoadBalancerIPsAnnotation {
+		v := ""
+		if svc.Annotations != nil {
+			v = strings.TrimSpace(svc.Annotations[kubevip.LoadbalancerIPAnnotation])
+		}
+		if v == "" {
+			log.Info("(svcs) ignoring LoadBalancer service without kube-vip.io/loadbalancerIPs (services require annotation is enabled)",
+				"service", svc.Name, "namespace", svc.Namespace)
+			return true, nil
+		}
+	}
+
 	svcAddresses, svcHostnames := instance.FetchServiceAddresses(svc)
+	svcAddresses = p.filterIngressOnlyPeerNodeIPs(ctx, svc, svcAddresses)
 
 	// We only care about LoadBalancer services that have been allocated an address
 	if len(svcAddresses) <= 0 && len(svcHostnames) <= 0 {
@@ -373,6 +390,53 @@ func (p *Processor) getServiceContext(uid types.UID) (*servicecontext.Context, e
 		return nil, fmt.Errorf("failed to cast service context pointer - UID: %s", uid)
 	}
 	return ctx, nil
+}
+
+// filterIngressOnlyPeerNodeIPs drops IPs that match another Node's InternalIP when addresses
+// come only from Service status (e.g. k3s ServiceLB filling ingress with every node). Explicit
+// kube-vip.io/loadbalancerIPs is trusted as intentional.
+func (p *Processor) filterIngressOnlyPeerNodeIPs(ctx context.Context, svc *v1.Service, addrs []string) []string {
+	if len(addrs) == 0 {
+		return addrs
+	}
+	fromAnnotation := false
+	if svc.Annotations != nil && strings.TrimSpace(svc.Annotations[kubevip.LoadbalancerIPAnnotation]) != "" {
+		fromAnnotation = true
+	}
+	if fromAnnotation || p.clientSet == nil || p.config.NodeName == "" {
+		return addrs
+	}
+	listCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	nodes, err := p.clientSet.CoreV1().Nodes().List(listCtx, metav1.ListOptions{})
+	if err != nil {
+		log.Warn("(svcs) could not list nodes; not filtering peer InternalIPs from VIP list", "err", err)
+		return addrs
+	}
+	other := make(map[string]struct{})
+	for i := range nodes.Items {
+		if nodes.Items[i].Name == p.config.NodeName {
+			continue
+		}
+		for _, a := range nodes.Items[i].Status.Addresses {
+			if a.Type != v1.NodeInternalIP {
+				continue
+			}
+			if ip := net.ParseIP(a.Address); ip != nil {
+				other[ip.String()] = struct{}{}
+			}
+		}
+	}
+	var out []string
+	for _, ipStr := range addrs {
+		if _, skip := other[ipStr]; skip {
+			log.Warn("(svcs) skipping VIP matching another node's InternalIP without kube-vip.io/loadbalancerIPs (ingress-only); disable k3s servicelb or set the annotation",
+				"ip", ipStr, "service", svc.Namespace+"/"+svc.Name)
+			continue
+		}
+		out = append(out, ipStr)
+	}
+	return out
 }
 
 func (p *Processor) CountRouteReferences(route *netlink.Route) int {

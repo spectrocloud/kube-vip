@@ -117,6 +117,7 @@ func (sm *Manager) startTableMode(id string) error {
 				RetryPeriod:     time.Duration(sm.config.RetryPeriod) * time.Second,
 				Callbacks: leaderelection.LeaderCallbacks{
 					OnStartedLeading: func(ctx context.Context) {
+						sm.resetLastObservedNonSelfServiceLeader()
 						sm.serviceLeaseHeld.Store(true)
 						err = sm.svcProcessor.ServicesWatcher(ctx, sm.svcProcessor.SyncServices)
 						if err != nil {
@@ -142,6 +143,7 @@ func (sm *Manager) startTableMode(id string) error {
 					OnNewLeader: func(identity string) {
 						// we're notified when new leader elected
 						if identity == id {
+							sm.resetLastObservedNonSelfServiceLeader()
 							sm.serviceLeaseHeld.Store(true)
 							return
 						}

@@ -342,6 +342,12 @@ func (sm *Manager) Start() error {
 	return nil
 }
 
+// resetLastObservedNonSelfServiceLeader clears duplicate OnNewLeader suppression when this
+// replica becomes leader again so a later handoff to the same peer is not skipped.
+func (sm *Manager) resetLastObservedNonSelfServiceLeader() {
+	sm.lastObservedNonSelfLeader.Store("")
+}
+
 // skipRepeatedNonSelfServiceLeader returns true when identity matches the last non-self
 // leader we already handled (duplicate OnNewLeader notifications).
 // Skips the trailing "new leader elected" Info log by design; see Debug for repeats.
@@ -376,10 +382,10 @@ func (sm *Manager) runSharedLeaseServiceInterfaceOnce() {
 		return
 	}
 	if !sm.serviceLeaseHeld.Load() {
-		sm.cleanupStaleKubeVipHostRoutes()
-	} else {
-		sm.reconcileLeaderServiceHostRoutes()
+		// Followers: avoid periodic netlink scrub; lease callbacks and startup still run cleanup.
+		return
 	}
+	sm.reconcileLeaderServiceHostRoutes()
 }
 
 func returnNameSpace() (string, error) {

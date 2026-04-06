@@ -324,6 +324,12 @@ func generatePodSpec(c *Config, image, imageVersion string, inCluster bool) *cor
 			}
 			newEnvironment = append(newEnvironment, lbClassOnlyVar...)
 		}
+		if c.ServicesRequireLoadBalancerIPsAnnotation {
+			newEnvironment = append(newEnvironment, corev1.EnvVar{
+				Name:  svcRequireLbIPsAnnotation,
+				Value: strconv.FormatBool(c.ServicesRequireLoadBalancerIPsAnnotation),
+			})
+		}
 		if c.EnableServiceSecurity {
 			EnableServiceSecurityVar := []corev1.EnvVar{
 				{

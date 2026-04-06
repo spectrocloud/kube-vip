@@ -44,6 +44,10 @@ type Config struct {
 	// LoadBalancerClassLegacyHandling, will enable legacy loadbalancer class handling which does not force service loadbalancer class and kube-vip's loadbalancer class to be the same.
 	LoadBalancerClassLegacyHandling bool `yaml:"lbClassNameLegacyHandling"`
 
+	// ServicesRequireLoadBalancerIPsAnnotation, when true, kube-vip only manages LoadBalancer services that set kube-vip.io/loadbalancerIPs.
+	// Use on k3s when bundled ServiceLB also fills status.loadBalancer.ingress with every node IP (e.g. Traefik): without this, kube-vip may try to bind all of those IPs on the lease leader.
+	ServicesRequireLoadBalancerIPsAnnotation bool `yaml:"servicesRequireLoadBalancerIPsAnnotation"`
+
 	// EnableServiceSecurity, will enable the use of iptables to secure services
 	EnableServiceSecurity bool `yaml:"EnableServiceSecurity"`
 

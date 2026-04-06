@@ -557,18 +557,35 @@ func (configurator *network) DeleteIP() (bool, error) {
 	configurator.link.Lock.Lock()
 	defer configurator.link.Lock.Unlock()
 
-	result, err := configurator.IsSet()
-	if err != nil {
-		return false, errors.Wrap(err, "ip check in DeleteIP failed")
-	}
-
-	// Nothing to delete
-	if !result {
+	if configurator.address == nil || configurator.address.IP == nil {
 		return false, nil
 	}
 
-	if err = netlink.AddrDel(configurator.link.Intf, configurator.address); err != nil {
-		return false, errors.Wrap(err, "could not delete ip")
+	addrs, err := netlink.AddrList(configurator.link.Intf, netlink.FAMILY_ALL)
+	if err != nil {
+		return false, errors.Wrap(err, "could not list addresses")
+	}
+
+	target := configurator.address.IP
+	removed := false
+	for _, existing := range addrs {
+		if existing.IP == nil || !existing.IP.Equal(target) {
+			continue
+		}
+		ones, bits := existing.Mask.Size()
+		if bits == 0 || ones != bits {
+			// Never remove primary prefixes (e.g. /18); only kube-vip-style /32 or /128 aliases.
+			continue
+		}
+		ex := existing
+		if err = netlink.AddrDel(configurator.link.Intf, &ex); err != nil {
+			return removed, errors.Wrap(err, "could not delete ip")
+		}
+		removed = true
+	}
+
+	if !removed {
+		return false, nil
 	}
 
 	if configurator.enableSecurity && !configurator.ignoreSecurity {

@@ -222,6 +222,15 @@ func ParseEnvironment(c *Config) error {
 			c.LoadBalancerClassLegacyHandling = b
 		}
 
+		env = os.Getenv(svcRequireLbIPsAnnotation)
+		if env != "" {
+			b, err := strconv.ParseBool(env)
+			if err != nil {
+				return err
+			}
+			c.ServicesRequireLoadBalancerIPsAnnotation = b
+		}
+
 		// Find the namespace that the control plane should use (for leaderElection lock)
 		env = os.Getenv(svcNamespace)
 		if env != "" {
@@ -817,6 +826,9 @@ func mergeConfigValues(baseConfig, fileConfig *Config) {
 	}
 	if !baseConfig.EnableServicesElection && fileConfig.EnableServicesElection {
 		baseConfig.EnableServicesElection = fileConfig.EnableServicesElection
+	}
+	if !baseConfig.ServicesRequireLoadBalancerIPsAnnotation && fileConfig.ServicesRequireLoadBalancerIPsAnnotation {
+		baseConfig.ServicesRequireLoadBalancerIPsAnnotation = fileConfig.ServicesRequireLoadBalancerIPsAnnotation
 	}
 	if !baseConfig.EnableNodeLabeling && fileConfig.EnableNodeLabeling {
 		baseConfig.EnableNodeLabeling = fileConfig.EnableNodeLabeling

@@ -185,6 +185,9 @@ const (
 	// lbClassLegacyHandling enables legacy handing of load-balancer class
 	lbClassLegacyHandling = "lb_class_legacy_handling"
 
+	// svcRequireLbIPsAnnotation ignores LoadBalancer services unless kube-vip.io/loadbalancerIPs is set (helps k3s + ServiceLB + kube-vip).
+	svcRequireLbIPsAnnotation = "svc_require_lb_ips_annotation"
+
 	// lbEnable defines if the load-balancer should be enabled
 	lbEnable = "lb_enable"
 
