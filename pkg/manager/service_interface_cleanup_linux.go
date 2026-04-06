@@ -144,12 +144,28 @@ func (s ipPreserveSet) contains(ip net.IP) bool {
 	return false
 }
 
+// shouldPreserveConfigControlPlaneVIPOnInterface returns whether config.Address / config.VIP represent addresses
+// that must stay on the NIC during scrub. When control-plane leader election is enabled, those are only "ours"
+// while we hold the CP lease; otherwise scrub would keep a stale HA VIP after reboot or handoff.
+func (sm *Manager) shouldPreserveConfigControlPlaneVIPOnInterface() bool {
+	if !sm.config.EnableControlPlane {
+		return true
+	}
+	// CP followers may keep IPv4 on the interface by design; do not let services scrub remove it.
+	if sm.config.PreserveVIPOnLeadershipLoss {
+		return true
+	}
+	return sm.controlPlaneLeaseHeld.Load()
+}
+
 func (sm *Manager) addrsToPreserveDuringInterfaceCleanup() ipPreserveSet {
 	var out ipPreserveSet
-	if ip := net.ParseIP(sm.config.Address); ip != nil {
-		out = append(out, ip)
+	if sm.shouldPreserveConfigControlPlaneVIPOnInterface() {
+		if ip := net.ParseIP(sm.config.Address); ip != nil {
+			out = append(out, ip)
+		}
 	}
-	if sm.config.VIP != "" {
+	if sm.shouldPreserveConfigControlPlaneVIPOnInterface() && sm.config.VIP != "" {
 		// Same semantics as pkg/vip/util.go Split: comma-separated, trim spaces.
 		for _, part := range strings.Split(sm.config.VIP, ",") {
 			part = strings.TrimSpace(trimHostRouteCIDR(part))

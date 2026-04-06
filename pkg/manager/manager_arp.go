@@ -64,7 +64,7 @@ func (sm *Manager) startARP(id string) error {
 		}
 
 		go func() {
-			err := cpCluster.StartCluster(sm.config, clusterManager, nil)
+			err := cpCluster.StartCluster(sm.config, clusterManager, nil, &sm.controlPlaneLeaseHeld)
 			if err != nil {
 				log.Error("starting control plane", "err", err)
 				// Trigger the shutdown of this manager instance

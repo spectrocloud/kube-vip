@@ -71,6 +71,11 @@ type Manager struct {
 	// serviceLeaseHeld is true while this replica holds the shared services lease (plndr-svcs-lock path).
 	serviceLeaseHeld atomic.Bool
 
+	// controlPlaneLeaseHeld is true while this replica holds the control-plane leader election (StartCluster path).
+	// Used so interface cleanup does not treat config.Address/config.VIP as "always preserve" on CP followers
+	// (stale HA VIP after reboot / handoff).
+	controlPlaneLeaseHeld atomic.Bool
+
 	// This tracks used network interfaces and guards them with mutex for concurrent changes.
 	intfMgr *networkinterface.Manager
 

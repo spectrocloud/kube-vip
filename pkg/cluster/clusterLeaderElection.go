@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -91,8 +92,9 @@ func NewManager(path string, inCluster bool, port int) (*Manager, error) {
 	}, nil
 }
 
-// StartCluster - Begins a running instance of the Leader Election cluster
-func (cluster *Cluster) StartCluster(c *kubevip.Config, sm *Manager, bgpServer *bgp.Server) error {
+// StartCluster - Begins a running instance of the Leader Election cluster.
+// cpLeading is optional; when non-nil it tracks whether this member is the control-plane leader (for interface scrub).
+func (cluster *Cluster) StartCluster(c *kubevip.Config, sm *Manager, bgpServer *bgp.Server, cpLeading *atomic.Bool) error {
 	var err error
 
 	log.Info("cluster membership", "namespace", c.Namespace, "lock", c.LeaseName, "id", c.NodeName)
@@ -166,6 +168,9 @@ func (cluster *Cluster) StartCluster(c *kubevip.Config, sm *Manager, bgpServer *
 		leaseID: c.NodeName,
 		sm:      sm,
 		onStartedLeading: func(ctx context.Context) { //nolint TODO: potential clean code
+			if cpLeading != nil {
+				cpLeading.Store(true)
+			}
 			// When we become leader, ensure we can take over VIPs even if they're preserved on other nodes
 			if c.PreserveVIPOnLeadershipLoss {
 				log.Info("Becoming leader with VIP preservation enabled - ensuring VIP takeover")
@@ -195,6 +200,10 @@ func (cluster *Cluster) StartCluster(c *kubevip.Config, sm *Manager, bgpServer *
 		onStoppedLeading: func() {
 			// we can do cleanup here
 			log.Info("This node is becoming a follower within the cluster")
+
+			if cpLeading != nil {
+				cpLeading.Store(false)
+			}
 
 			// Stop the dns context
 			cancelDNS()

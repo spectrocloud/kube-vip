@@ -94,8 +94,9 @@ func (sm *Manager) startBGP() error {
 
 		go func() {
 			if sm.config.EnableLeaderElection {
-				err = cpCluster.StartCluster(sm.config, clusterManager, sm.bgpServer)
+				err = cpCluster.StartCluster(sm.config, clusterManager, sm.bgpServer, &sm.controlPlaneLeaseHeld)
 			} else {
+				sm.controlPlaneLeaseHeld.Store(true)
 				err = cpCluster.StartVipService(sm.config, clusterManager, sm.bgpServer)
 			}
 			if err != nil {
