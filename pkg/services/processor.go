@@ -419,7 +419,7 @@ func (p *Processor) filterIngressOnlyPeerNodeIPs(ctx context.Context, svc *v1.Se
 			continue
 		}
 		for _, a := range nodes.Items[i].Status.Addresses {
-			if a.Type != v1.NodeInternalIP {
+			if a.Type != v1.NodeInternalIP && a.Type != v1.NodeExternalIP {
 				continue
 			}
 			if ip := net.ParseIP(a.Address); ip != nil {
@@ -430,7 +430,7 @@ func (p *Processor) filterIngressOnlyPeerNodeIPs(ctx context.Context, svc *v1.Se
 	var out []string
 	for _, ipStr := range addrs {
 		if _, skip := other[ipStr]; skip {
-			log.Warn("(svcs) skipping VIP matching another node's InternalIP without kube-vip.io/loadbalancerIPs (ingress-only); disable k3s servicelb or set the annotation",
+			log.Warn("(svcs) skipping VIP matching another node's address without kube-vip.io/loadbalancerIPs (ingress-only); disable k3s servicelb or set the annotation",
 				"ip", ipStr, "service", svc.Namespace+"/"+svc.Name)
 			continue
 		}

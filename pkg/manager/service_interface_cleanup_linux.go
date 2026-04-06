@@ -83,13 +83,29 @@ func (sm *Manager) cleanupStaleKubeVipHostRoutes() {
 			continue
 		}
 
+		// Never keep another node's address here, even if something mis-declared it as a VIP.
+		if _, ok := otherNodeIPs[ip.String()]; ok {
+			log.Info("cleanup: removing host route belonging to another node", "ip", ip.String(), "iface", iface)
+			if err := netlink.AddrDel(link, a); err != nil {
+				log.Warn("cleanup: failed to remove address", "ip", ip.String(), "iface", iface, "err", err)
+			}
+			continue
+		}
+		// Redundant /32|/128 of our primary when the real prefix exists (DHCP + kube-vip alias).
+		if _, isSelf := selfIPs[ip.String()]; isSelf && hostRouteShadowsPrimaryPrefix(ip, primaryKeys) {
+			log.Info("cleanup: removing host route shadowing this node's primary prefix", "ip", ip.String(), "iface", iface)
+			if err := netlink.AddrDel(link, a); err != nil {
+				log.Warn("cleanup: failed to remove address", "ip", ip.String(), "iface", iface, "err", err)
+			}
+			continue
+		}
+
 		if preserve.contains(ip) {
 			continue
 		}
 
 		// Drop extra /32|/128 only when the same IP already has a longer prefix on the link (e.g. /18),
-		// and this address is not a configured/preserved VIP. Do not run before preserve — reconciling
-		// a real service VIP that matches the node IP would wrongly delete the VIP.
+		// and this address is not a configured/preserved VIP.
 		if hostRouteShadowsPrimaryPrefix(ip, primaryKeys) {
 			log.Info("cleanup: removing host route shadowing primary prefix on same interface", "ip", ip.String(), "iface", iface)
 			if err := netlink.AddrDel(link, a); err != nil {
@@ -181,8 +197,15 @@ func (sm *Manager) reconcileLeaderServiceHostRoutes() {
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	otherNodeIPs, selfIPs := sm.nodeInternalIPMaps(ctx)
+
 	expected := make(map[string]struct{})
 	for _, ip := range sm.addrsToPreserveDuringInterfaceCleanup() {
+		if _, bad := otherNodeIPs[ip.String()]; bad {
+			continue
+		}
 		expected[ip.String()] = struct{}{}
 	}
 
@@ -191,15 +214,27 @@ func (sm *Manager) reconcileLeaderServiceHostRoutes() {
 		if inst == nil {
 			continue
 		}
+		svcRef := ""
+		if inst.ServiceSnapshot != nil {
+			svcRef = inst.ServiceSnapshot.Namespace + "/" + inst.ServiceSnapshot.Name
+		}
+		addExpected := func(s string) {
+			if s == "" || s == "0.0.0.0" || s == "::" {
+				return
+			}
+			if net.ParseIP(s) == nil {
+				return
+			}
+			if _, bad := otherNodeIPs[s]; bad {
+				log.Warn("reconcile: omitting VIP candidate matching another node's address from expected set", "ip", s, "service", svcRef)
+				return
+			}
+			expected[s] = struct{}{}
+		}
 		if inst.ServiceSnapshot != nil {
 			addrsStr, _ := instance.FetchServiceAddresses(inst.ServiceSnapshot)
 			for _, vs := range addrsStr {
-				if vs == "0.0.0.0" || vs == "::" {
-					continue
-				}
-				if ip := net.ParseIP(vs); ip != nil {
-					expected[ip.String()] = struct{}{}
-				}
+				addExpected(vs)
 			}
 		}
 		for _, cfg := range inst.VIPConfigs {
@@ -207,26 +242,22 @@ func (sm *Manager) reconcileLeaderServiceHostRoutes() {
 				continue
 			}
 			if ip := net.ParseIP(cfg.VIP); ip != nil {
-				expected[ip.String()] = struct{}{}
+				addExpected(ip.String())
 			}
 		}
 		if inst.DHCPInterfaceIPv4 != "" {
 			if ip := net.ParseIP(inst.DHCPInterfaceIPv4); ip != nil {
-				expected[ip.String()] = struct{}{}
+				addExpected(ip.String())
 			}
 		}
 		if inst.DHCPInterfaceIPv6 != "" {
 			if ip := net.ParseIP(inst.DHCPInterfaceIPv6); ip != nil {
-				expected[ip.String()] = struct{}{}
+				addExpected(ip.String())
 			}
 		}
 	}
 
 	primaryKeys := nonHostPrefixIPKeys(addrs)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	otherNodeIPs, selfIPs := sm.nodeInternalIPMaps(ctx)
 
 	for i := range addrs {
 		a := &addrs[i]
@@ -236,6 +267,22 @@ func (sm *Manager) reconcileLeaderServiceHostRoutes() {
 		}
 		ones, bits := a.Mask.Size()
 		if bits == 0 || ones != bits {
+			continue
+		}
+		// Another node's address is invalid here even if Service status/ingress lists it (k3s ServiceLB, etc.).
+		if _, ok := otherNodeIPs[ip.String()]; ok {
+			log.Info("reconcile: removing host route belonging to another node", "ip", ip.String(), "iface", iface)
+			if err := netlink.AddrDel(link, a); err != nil {
+				log.Warn("reconcile: failed to remove address", "ip", ip.String(), "iface", iface, "err", err)
+			}
+			continue
+		}
+		// Same node: drop kube-vip /32|/128 alias when the real prefix exists on this interface.
+		if _, isSelf := selfIPs[ip.String()]; isSelf && hostRouteShadowsPrimaryPrefix(ip, primaryKeys) {
+			log.Info("reconcile: removing host route shadowing this node's primary prefix", "ip", ip.String(), "iface", iface)
+			if err := netlink.AddrDel(link, a); err != nil {
+				log.Warn("reconcile: failed to remove address", "ip", ip.String(), "iface", iface, "err", err)
+			}
 			continue
 		}
 		if _, ok := expected[ip.String()]; ok {
@@ -284,7 +331,7 @@ func (sm *Manager) nodeInternalIPMaps(ctx context.Context) (other map[string]str
 			dest = self
 		}
 		for _, a := range nodes.Items[i].Status.Addresses {
-			if a.Type != v1.NodeInternalIP {
+			if a.Type != v1.NodeInternalIP && a.Type != v1.NodeExternalIP {
 				continue
 			}
 			if ip := net.ParseIP(a.Address); ip != nil {
@@ -297,7 +344,7 @@ func (sm *Manager) nodeInternalIPMaps(ctx context.Context) (other map[string]str
 
 func (sm *Manager) hostRouteRemovedForNodeIPRules(ip net.IP, otherNodeIPs, selfIPs map[string]struct{}) (bool, string) {
 	if _, ok := otherNodeIPs[ip.String()]; ok {
-		return true, "matches_another_node_internal_ip"
+		return true, "matches_another_node_address"
 	}
 	if _, ok := selfIPs[ip.String()]; ok {
 		return true, "duplicate_host_route_of_this_nodes_internal_ip"
