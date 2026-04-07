@@ -155,7 +155,8 @@ func (p *Processor) addService(ctx context.Context, svc *v1.Service) error {
 
 	startTime := time.Now()
 
-	newService, err := instance.NewInstance(ctx, svc, p.config, p.intfMgr, p.arpMgr)
+	localIPs := instance.SelfNodeStatusIPSet(ctx, p.clientSet, p.config.NodeName)
+	newService, err := instance.NewInstance(ctx, svc, p.config, p.intfMgr, p.arpMgr, localIPs)
 	if err != nil {
 		return err
 	}

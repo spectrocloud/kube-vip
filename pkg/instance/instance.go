@@ -57,7 +57,7 @@ type Port struct {
 	Type string
 }
 
-func NewInstance(ctx context.Context, svc *v1.Service, config *kubevip.Config, intfMgr *networkinterface.Manager, arpMgr *arp.Manager) (*Instance, error) {
+func NewInstance(ctx context.Context, svc *v1.Service, config *kubevip.Config, intfMgr *networkinterface.Manager, arpMgr *arp.Manager, localNodeIPs map[string]struct{}) (*Instance, error) {
 	instanceAddresses, instanceHostnames := FetchServiceAddresses(svc)
 	log.Info("NewInstance used", "instanceAddresses", instanceAddresses, "instanceHostnames", instanceHostnames)
 
@@ -65,6 +65,8 @@ func NewInstance(ctx context.Context, svc *v1.Service, config *kubevip.Config, i
 	var link netlink.Link
 	var err error
 	var dnsAddresses []string
+
+	forceBindNodePrimary := svc.Annotations != nil && strings.EqualFold(svc.Annotations[kubevip.BindNodePrimaryAnnotation], "true")
 
 	for _, address := range instanceAddresses {
 		// Detect if we're using a specific interface for services
@@ -109,6 +111,16 @@ func NewInstance(ctx context.Context, svc *v1.Service, config *kubevip.Config, i
 			}
 			if link == nil {
 				return nil, fmt.Errorf("failed to get interface %s", svcInterface)
+			}
+		}
+
+		if !forceBindNodePrimary {
+			if ip := net.ParseIP(address); ip != nil && !ip.Equal(net.IPv4zero) && !ip.Equal(net.IPv6zero) {
+				if vipIsLocalNodePrimaryOnLink(ip, link, localNodeIPs) {
+					log.Info("(svcs) skipping kube-vip /32 bind and ARP for LB IP that is this node's primary on the interface (VIP moves to another node normally for shared IPs)",
+						"ip", ip.String(), "interface", svcInterface, "service", svc.Namespace+"/"+svc.Name)
+					continue
+				}
 			}
 		}
 
@@ -181,6 +193,11 @@ func NewInstance(ctx context.Context, svc *v1.Service, config *kubevip.Config, i
 				EnableLeaderElection: config.EnableLeaderElection,
 			},
 		})
+	}
+
+	if len(instanceAddresses) > 0 && len(newVips) == 0 && len(instanceHostnames) == 0 {
+		return nil, fmt.Errorf("kube-vip: all LoadBalancer IPs for %s/%s are local node primary addresses (no /32 to add). Use a dedicated VIP or set %s=true to force bind",
+			svc.Namespace, svc.Name, kubevip.BindNodePrimaryAnnotation)
 	}
 
 	for _, hostname := range instanceHostnames {
@@ -366,6 +383,38 @@ func NewInstance(ctx context.Context, svc *v1.Service, config *kubevip.Config, i
 	}
 
 	return instance, nil
+}
+
+// vipIsLocalNodePrimaryOnLink returns true if ip is listed as this node's address in the API and/or
+// already has a non-host-route address on the link (e.g. DHCP /18). In those cases kube-vip should not
+// add a duplicate /32 or ARP; a real shared VIP is not the node's primary and will bind on the leader only.
+func vipIsLocalNodePrimaryOnLink(ip net.IP, link netlink.Link, localNodeIPs map[string]struct{}) bool {
+	if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
+		return false
+	}
+	if len(localNodeIPs) > 0 {
+		if _, ok := localNodeIPs[ip.String()]; ok {
+			return true
+		}
+	}
+	if link == nil {
+		return false
+	}
+	addrs, err := netlink.AddrList(link, netlink.FAMILY_ALL)
+	if err != nil {
+		return false
+	}
+	for i := range addrs {
+		a := &addrs[i]
+		if a.IP == nil || !a.IP.Equal(ip) {
+			continue
+		}
+		ones, bits := a.Mask.Size()
+		if bits > 0 && ones != bits {
+			return true
+		}
+	}
+	return false
 }
 
 func autoFindInterface(ip string) (netlink.Link, error) {

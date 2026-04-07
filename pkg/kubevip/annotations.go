@@ -43,6 +43,10 @@ const (
 	// Configure LoadBalancer IPs instead of relying on a controller
 	LoadbalancerIPAnnotation = "kube-vip.io/loadbalancerIPs"
 
+	// BindNodePrimary forces kube-vip to add a /32|/128 and ARP for an LB IP that would otherwise be skipped
+	// because it matches this node's primary on the interface (default: skip duplicate bind).
+	BindNodePrimaryAnnotation = "kube-vip.io/bindNodePrimary"
+
 	// Ignore the LoadBalancer Service
 	LoadbalancerIgnore = "kube-vip.io/ignore"
 
