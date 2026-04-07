@@ -45,7 +45,7 @@ func (p *Processor) SyncServices(ctx context.Context, svc *v1.Service) error {
 
 	// Iterate through the synchronising services
 
-	action := p.getServiceInstanceAction(svc)
+	action := p.getServiceInstanceAction(ctx, svc)
 	switch action {
 	case ActionDelete:
 		// remove the label from the node before deleting the service
@@ -74,10 +74,11 @@ func (p *Processor) SyncServices(ctx context.Context, svc *v1.Service) error {
 	return nil
 }
 
-func (p *Processor) getServiceInstanceAction(svc *v1.Service) ServiceInstanceAction {
+func (p *Processor) getServiceInstanceAction(ctx context.Context, svc *v1.Service) ServiceInstanceAction {
 	// protect against multiple calls
 	// get the annotations or legacy values from manual configuration
 	addresses, hostnames := instance.FetchServiceAddresses(svc)
+	addresses = p.filterIngressOnlyPeerNodeIPs(ctx, svc, addresses)
 	// get the status information of the LB Service
 	statusAddresses, _ := instance.FetchLoadBalancerIngress(svc)
 	p.mutex.Lock()
@@ -156,7 +157,13 @@ func (p *Processor) addService(ctx context.Context, svc *v1.Service) error {
 	startTime := time.Now()
 
 	localIPs := selfNodeStatusIPSet(ctx, p.clientSet, p.config.NodeName)
-	newService, err := instance.NewInstance(ctx, svc, p.config, p.intfMgr, p.arpMgr, localIPs)
+	instanceAddresses, instanceHostnames := instance.FetchServiceAddresses(svc)
+	instanceAddresses = p.filterIngressOnlyPeerNodeIPs(ctx, svc, instanceAddresses)
+	if len(instanceAddresses) == 0 && len(instanceHostnames) == 0 {
+		return fmt.Errorf("kube-vip: no LB IPs left for %s/%s after filtering other nodes' addresses", svc.Namespace, svc.Name)
+	}
+
+	newService, err := instance.NewInstance(ctx, svc, p.config, p.intfMgr, p.arpMgr, localIPs, instanceAddresses, instanceHostnames)
 	if err != nil {
 		return err
 	}

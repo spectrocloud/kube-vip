@@ -57,8 +57,9 @@ type Port struct {
 	Type string
 }
 
-func NewInstance(ctx context.Context, svc *v1.Service, config *kubevip.Config, intfMgr *networkinterface.Manager, arpMgr *arp.Manager, localNodeIPs map[string]struct{}) (*Instance, error) {
-	instanceAddresses, instanceHostnames := FetchServiceAddresses(svc)
+// NewInstance builds a service Instance. instanceAddresses and instanceHostnames must be the LB
+// candidates (caller should apply filterIngressOnlyPeerNodeIPs to numeric addresses first).
+func NewInstance(ctx context.Context, svc *v1.Service, config *kubevip.Config, intfMgr *networkinterface.Manager, arpMgr *arp.Manager, localNodeIPs map[string]struct{}, instanceAddresses, instanceHostnames []string) (*Instance, error) {
 	log.Info("NewInstance used", "instanceAddresses", instanceAddresses, "instanceHostnames", instanceHostnames)
 
 	var newVips []*kubevip.Config

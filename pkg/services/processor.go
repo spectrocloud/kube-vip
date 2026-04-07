@@ -392,18 +392,14 @@ func (p *Processor) getServiceContext(uid types.UID) (*servicecontext.Context, e
 	return ctx, nil
 }
 
-// filterIngressOnlyPeerNodeIPs drops IPs that match another Node's InternalIP when addresses
-// come only from Service status (e.g. k3s ServiceLB filling ingress with every node). Explicit
-// kube-vip.io/loadbalancerIPs is trusted as intentional.
+// filterIngressOnlyPeerNodeIPs drops IPs that match another Node's InternalIP/ExternalIP.
+// This runs for status ingress and for kube-vip.io/loadbalancerIPs — peer node addresses must never
+// be bound on this host (annotation does not override).
 func (p *Processor) filterIngressOnlyPeerNodeIPs(ctx context.Context, svc *v1.Service, addrs []string) []string {
 	if len(addrs) == 0 {
 		return addrs
 	}
-	fromAnnotation := false
-	if svc.Annotations != nil && strings.TrimSpace(svc.Annotations[kubevip.LoadbalancerIPAnnotation]) != "" {
-		fromAnnotation = true
-	}
-	if fromAnnotation || p.clientSet == nil || p.config.NodeName == "" {
+	if p.clientSet == nil || p.config.NodeName == "" {
 		return addrs
 	}
 	listCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
@@ -430,7 +426,7 @@ func (p *Processor) filterIngressOnlyPeerNodeIPs(ctx context.Context, svc *v1.Se
 	var out []string
 	for _, ipStr := range addrs {
 		if _, skip := other[ipStr]; skip {
-			log.Warn("(svcs) skipping VIP matching another node's address without kube-vip.io/loadbalancerIPs (ingress-only); disable k3s servicelb or set the annotation",
+			log.Warn("(svcs) skipping VIP matching another node's address (never bound here)",
 				"ip", ipStr, "service", svc.Namespace+"/"+svc.Name)
 			continue
 		}
