@@ -130,7 +130,6 @@ func init() {
 	kubeVipCmd.PersistentFlags().BoolVar(&initConfig.LoadBalancerClassOnly, "lbClassOnly", false, fmt.Sprintf("Enable load balancing only for services with LoadBalancerClass %q", kubevip.LBClassName))
 	kubeVipCmd.PersistentFlags().StringVar(&initConfig.LoadBalancerClassName, "lbClassName", kubevip.LBClassName, fmt.Sprintf("Name of load balancer class for kube-VIP, defaults to %q", kubevip.LBClassName))
 	kubeVipCmd.PersistentFlags().BoolVar(&initConfig.LoadBalancerClassLegacyHandling, "lbClassNameLegacyHandling", true, "Use legacy LoadBalancer class name handling (e.g. accepting services both with empty and non-empty class)")
-	kubeVipCmd.PersistentFlags().BoolVar(&initConfig.ServicesRequireLoadBalancerIPsAnnotation, "servicesRequireLoadBalancerIPsAnnotation", false, "Only manage LoadBalancer services that set kube-vip.io/loadbalancerIPs (recommended with k3s ServiceLB enabled alongside service mode)")
 	kubeVipCmd.PersistentFlags().BoolVar(&initConfig.EnableServiceSecurity, "onlyAllowTrafficServicePorts", false, "Only allow traffic to service ports, others will be dropped, defaults to false")
 	kubeVipCmd.PersistentFlags().BoolVar(&initConfig.EnableNodeLabeling, "enableNodeLabeling", false, fmt.Sprintf("Enable leader node labeling with %q, defaults to false", kubevip.HasIP))
 	kubeVipCmd.PersistentFlags().StringVar(&initConfig.ServicesLeaseName, "servicesLeaseName", "plndr-svcs-lock", "Name of the lease that is used for leader election for services (in arp mode)")

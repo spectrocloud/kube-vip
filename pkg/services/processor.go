@@ -6,7 +6,6 @@ import (
 	log "log/slog"
 	"net"
 	"reflect"
-	"strings"
 	"sync"
 	"time"
 
@@ -115,18 +114,6 @@ func (p *Processor) AddOrModify(ctx context.Context, event watch.Event, serviceF
 	// Check the loadBalancer class
 	if p.lbClassFilter(svc, p.config) {
 		return true, nil
-	}
-
-	if p.config.ServicesRequireLoadBalancerIPsAnnotation {
-		v := ""
-		if svc.Annotations != nil {
-			v = strings.TrimSpace(svc.Annotations[kubevip.LoadbalancerIPAnnotation])
-		}
-		if v == "" {
-			log.Info("(svcs) ignoring LoadBalancer service without kube-vip.io/loadbalancerIPs (services require annotation is enabled)",
-				"service", svc.Name, "namespace", svc.Namespace)
-			return true, nil
-		}
 	}
 
 	svcAddresses, svcHostnames := instance.FetchServiceAddresses(svc)
