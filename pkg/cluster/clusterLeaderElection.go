@@ -303,7 +303,7 @@ func (sm *Manager) NodeWatcher(lb *loadbalancer.IPVSLoadBalancer, port int) erro
 			errObject := apierrors.FromObject(event.Object)
 			statusErr, ok := errObject.(*apierrors.StatusError)
 			if !ok {
-				log.Errorf(spew.Sprintf("Received an error which is not *metav1.Status but %#+v", event.Object))
+				log.Error(spew.Sprintf("Received an error which is not *metav1.Status but %#+v", event.Object))
 			}
 
 			status := statusErr.ErrStatus
