@@ -124,7 +124,7 @@ func (sm *Manager) annotationsWatcher() error {
 			errObject := apierrors.FromObject(event.Object)
 			statusErr, ok := errObject.(*apierrors.StatusError)
 			if !ok {
-				log.Errorf(spew.Sprintf("Received an error which is not *metav1.Status but %#+v", event.Object))
+				log.Errorf(spew.Sprintf("received an error which is not *metav1.Status but %#+v", event.Object))
 
 			}
 
