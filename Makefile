@@ -90,7 +90,7 @@ docker:
 # This will build a local docker image (x86 only), use make dockerLocal for all architectures
 dockerx86Local:
 	@-rm ./kube-vip
-	@docker buildx build  --platform linux/amd64 --load -t $(REPOSITORY)/$(TARGET):$(DOCKERTAG) .
+	@docker buildx build  --platform linux/amd64 --load -t $(REPOSITORY)/$(TARGET):$(DOCKERTAG) . ${BUILD_ARGS}
 	@echo New Multi Architecture Docker image created
 
 dockerx86Action:
