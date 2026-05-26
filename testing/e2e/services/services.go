@@ -496,7 +496,7 @@ func podFailover(ctx context.Context, name, leaderNode *string, clientset *kuber
 }
 
 func tcpServer(egressAddress *string) bool {
-	listen, err := net.Listen("tcp", ":12345") //nolint
+	listen, err := net.Listen("tcp", ":12345") //nolint // #nosec G102 -- intentional test server
 	if err != nil {
 		log.Error(err)
 	}

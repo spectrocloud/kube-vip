@@ -2,6 +2,7 @@ package loadbalancer
 
 import (
 	"fmt"
+	"math"
 	"net"
 	"strings"
 
@@ -39,6 +40,9 @@ type IPVSLoadBalancer struct {
 }
 
 func NewIPVSLB(address string, port int, forwardingMethod string) (*IPVSLoadBalancer, error) {
+	if port < 0 || port > math.MaxUint16 {
+		return nil, fmt.Errorf("invalid port %d: must be in range 0-65535", port)
+	}
 	// Create IPVS client
 	c, err := ipvs.New()
 	if err != nil {
@@ -58,7 +62,7 @@ func NewIPVSLB(address string, port int, forwardingMethod string) (*IPVSLoadBala
 	svc := ipvs.Service{
 		Family:    family,
 		Protocol:  ipvs.TCP,
-		Port:      uint16(port),
+		Port:      uint16(port), // #nosec G115 -- bounds checked above
 		Address:   ip,
 		Scheduler: ROUNDROBIN,
 	}
@@ -99,6 +103,9 @@ func (lb *IPVSLoadBalancer) RemoveIPVSLB() error {
 }
 
 func (lb *IPVSLoadBalancer) AddBackend(address string, port int) error {
+	if port < 0 || port > math.MaxUint16 {
+		return fmt.Errorf("invalid port %d: must be in range 0-65535", port)
+	}
 	// Check if this is the first backend
 	backends, err := lb.client.Destinations(lb.loadBalancerService)
 	if err != nil && strings.Contains(err.Error(), "file does not exist") {
@@ -137,7 +144,7 @@ func (lb *IPVSLoadBalancer) AddBackend(address string, port int) error {
 
 	dst := ipvs.Destination{
 		Address:   ip,
-		Port:      uint16(port),
+		Port:      uint16(port), // #nosec G115 -- bounds checked above
 		Family:    family,
 		Weight:    1,
 		FwdMethod: lb.forwardingMethod,
@@ -159,6 +166,9 @@ func (lb *IPVSLoadBalancer) AddBackend(address string, port int) error {
 }
 
 func (lb *IPVSLoadBalancer) RemoveBackend(address string, port int) error {
+	if port < 0 || port > math.MaxUint16 {
+		return fmt.Errorf("invalid port %d: must be in range 0-65535", port)
+	}
 	ip, family := ipAndFamily(address)
 	if family != lb.loadBalancerService.Family {
 		return nil
@@ -166,7 +176,7 @@ func (lb *IPVSLoadBalancer) RemoveBackend(address string, port int) error {
 
 	dst := ipvs.Destination{
 		Address: ip,
-		Port:    uint16(port),
+		Port:    uint16(port), // #nosec G115 -- bounds checked above
 		Family:  family,
 		Weight:  1,
 	}
