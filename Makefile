@@ -5,7 +5,7 @@ TARGET := kube-vip
 .DEFAULT_GOAL := $(TARGET)
 
 # These will be provided to the target
-VERSION := v0.6.3_spectro_1.5
+VERSION := v0.6.3_spectro_1.6
 
 BUILD := `git rev-parse HEAD`
 
@@ -17,7 +17,7 @@ LDFLAGS=-ldflags "-s -w -X=main.Version=$(VERSION) -X=main.Build=$(BUILD) -extld
 DOCKERTAG ?= $(VERSION)
 REPOSITORY ?= gcr.io/spectro-dev-public/release
 
-GOLANG_VERSION=1.24
+GOLANG_VERSION=1.26.3
 FIPS_ENABLE ?= ""
 BUILD_ARGS = --build-arg CRYPTO_LIB=${FIPS_ENABLE} --build-arg GOLANG_VERSION=${GOLANG_VERSION}
 PLATFORM ?= "linux/amd64,linux/arm64"
@@ -56,7 +56,7 @@ demo:
 
 dockerx86Dev:
 	@-rm ./kube-vip
-	@docker buildx build  --platform linux/amd64 --push -t $(REPOSITORY)/$(TARGET):dev .
+	@docker buildx build  --platform linux/amd64 --push -t $(REPOSITORY)/$(TARGET):dev . ${BUILD_ARGS}
 	@echo New single x86 Architecture Docker image created
 
 dockerx86Iptables:
@@ -66,7 +66,7 @@ dockerx86Iptables:
 
 dockerx86:
 	@-rm ./kube-vip
-	@docker buildx build  --platform linux/amd64 --push -t $(REPOSITORY)/$(TARGET):$(DOCKERTAG) .
+	@docker buildx build  --platform linux/amd64 --push -t $(REPOSITORY)/$(TARGET):$(DOCKERTAG) . ${BUILD_ARGS}
 	@echo New single x86 Architecture Docker image created
 
 docker-all:
@@ -90,7 +90,7 @@ docker:
 # This will build a local docker image (x86 only), use make dockerLocal for all architectures
 dockerx86Local:
 	@-rm ./kube-vip
-	@docker buildx build  --platform linux/amd64 --load -t $(REPOSITORY)/$(TARGET):$(DOCKERTAG) .
+	@docker buildx build  --platform linux/amd64 --load -t $(REPOSITORY)/$(TARGET):$(DOCKERTAG) . ${BUILD_ARGS}
 	@echo New Multi Architecture Docker image created
 
 dockerx86Action:

@@ -118,7 +118,7 @@ func (d *deployment) createKVDs(ctx context.Context, clientset *kubernetes.Clien
 
 }
 func (d *deployment) createDeployment(ctx context.Context, clientset *kubernetes.Clientset) error {
-	replicas := int32(d.replicas)
+	replicas := int32(d.replicas) // #nosec G115 -- replica count is user-controlled and within int32 range
 	deployment := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: d.name,
