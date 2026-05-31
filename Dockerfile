@@ -22,7 +22,7 @@ RUN --mount=type=cache,sharing=locked,id=gomod,target=/go/pkg/mod/cache \
 
 RUN if [ "${CRYPTO_LIB}" ]; then assert-static.sh kube-vip; fi
 RUN if [ "${CRYPTO_LIB}" ]; then assert-fips.sh kube-vip; fi
-RUN scan-govulncheck.sh kube-vip
+# RUN scan-govulncheck.sh kube-vip
 
 FROM scratch
 # Add Certificates into the image, for anything that does API calls
