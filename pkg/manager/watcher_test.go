@@ -35,6 +35,7 @@ func TestParseBgpAnnotations(t *testing.T) {
 	assert.Equal(t, uint32(64000), bgpPeer.AS, "bgpPeer.AS parsed incorrectly")
 	assert.Equal(t, "10.0.0.254", bgpConfig.RouterID, "bgpConfig.RouterID parsed incorrectly")
 
+	// #nosec G101 -- test fixture with a fake BGP password, not a real credential
 	node.Annotations = map[string]string{
 		"bgp/node-asn": "65000",
 		"bgp/peer-asn": "64000",
@@ -74,6 +75,7 @@ func TestParseNewBgpAnnotations(t *testing.T) {
 		t.Fatal("Parsing BGP annotations should return an error when no annotations exist")
 	}
 
+	// #nosec G101 -- test fixture with a fake BGP password, not a real credential
 	node.Annotations = map[string]string{
 		"bgp/bgp-peers-0-node-asn": "65000",
 		"bgp/bgp-peers-0-peer-asn": "64000",

@@ -154,7 +154,9 @@ func (sm *Manager) watchEndpoint(ctx context.Context, id string, service *v1.Ser
 				}
 
 				if !leaderElectionActive {
+					// #nosec G118 -- background context is intentional; cancel is stored for the leader-election lifecycle
 					go func() {
+						// #nosec G118 -- cancel is stored in the outer variable and called elsewhere
 						leaderContext, cancel = context.WithCancel(context.Background())
 
 						// This is a blocking function, that will restart (in the event of failure)

@@ -451,6 +451,7 @@ func generatePodSpec(c *Config, imageVersion string, inCluster bool) *corev1.Pod
 		providerConfigVolume := corev1.Volume{
 			Name: "cloud-sa-volume",
 			VolumeSource: corev1.VolumeSource{
+				// #nosec G101 -- this references a Kubernetes Secret by name, not a hardcoded credential
 				Secret: &corev1.SecretVolumeSource{
 					SecretName: "metal-cloud-config",
 				},

@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"strconv"
 	"time"
 )
 
@@ -19,7 +20,7 @@ func main() {
 	var errorOccurred bool
 	for {
 		p := make([]byte, 2048)
-		conn, err := net.Dial("udp", fmt.Sprintf("%s:%d", *address, *port))
+		conn, err := net.Dial("udp", net.JoinHostPort(*address, strconv.Itoa(*port)))
 		if err != nil {
 			if !errorOccurred {
 				errorTime = time.Now()

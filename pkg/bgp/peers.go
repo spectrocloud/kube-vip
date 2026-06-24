@@ -113,7 +113,7 @@ func (b *Server) getPath(ip net.IP) (path *api.Path) {
 func ParseBGPPeerConfig(config string) (bgpPeers []Peer, err error) {
 	peers := strings.Split(config, ",")
 	if len(peers) == 0 {
-		return nil, fmt.Errorf("No BGP Peer configurations found")
+		return nil, fmt.Errorf("no BGP Peer configurations found")
 	}
 
 	for x := range peers {
