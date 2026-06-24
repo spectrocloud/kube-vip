@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:experimental
 
-ARG GOLANG_VERSION=1.26.3
+ARG GOLANG_VERSION=1.26.4
 
 FROM --platform=$TARGETPLATFORM us-central1-docker.pkg.dev/palette-images-dev/hardened-images/builder/golang:${GOLANG_VERSION}-alpine as builder
 ARG TARGETOS

@@ -7,7 +7,7 @@ TARGET := kube-vip
 .DEFAULT_GOAL := $(TARGET)
 
 # These will be provided to the target
-VERSION := v1.0.3-spectro-1.5
+VERSION := v1.0.3-spectro-1.6
 
 BUILD := `git rev-parse HEAD`
 
@@ -19,7 +19,7 @@ LDFLAGS=-ldflags "-s -w -X=main.Version=$(VERSION) -X=main.Build=$(BUILD) -extld
 DOCKERTAG ?= $(VERSION)
 REPOSITORY ?= gcr.io/spectro-dev-public/release
 
-GOLANG_VERSION=1.26.3
+GOLANG_VERSION=1.26.4
 FIPS_ENABLE ?= ""
 BUILD_ARGS = --build-arg CRYPTO_LIB=${FIPS_ENABLE} --build-arg GOLANG_VERSION=${GOLANG_VERSION}
 PLATFORM ?= "linux/amd64,linux/arm64"
