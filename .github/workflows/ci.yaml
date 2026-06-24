@@ -12,7 +12,7 @@ jobs:
       - name: Init
         run: sudo apt-get update && sudo apt-get install -y build-essential
       - name: Install golangci-lint
-        run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.53.3
+        run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/v2.12.2/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.12.2
       - name: Checkout code
         uses: actions/checkout@v3
       - name: Set up Go ${{ env.GO_VERSION }}
@@ -72,7 +72,7 @@ jobs:
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: 'plndr/kube-vip:action'
+          image-ref: 'gcr.io/spectro-dev-public/release/kube-vip:action'
           format: 'table'
           exit-code: '1'
           ignore-unfixed: true

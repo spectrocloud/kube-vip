@@ -15,14 +15,14 @@ func BGPLookup(c *packngo.Client, k *kubevip.Config) error {
 	if k.MetalProjectID == "" {
 		proj := findProject(k.MetalProject, c)
 		if proj == nil {
-			return fmt.Errorf("Unable to find Project [%s]", k.MetalProject)
+			return fmt.Errorf("unable to find Project [%s]", k.MetalProject)
 		}
 		thisDevice = findSelf(c, proj.ID)
 	} else {
 		thisDevice = findSelf(c, k.MetalProjectID)
 	}
 	if thisDevice == nil {
-		return fmt.Errorf("Unable to find local/this device in Equinix Metal API")
+		return fmt.Errorf("unable to find local/this device in Equinix Metal API")
 	}
 
 	fmt.Printf("Querying BGP settings for [%s]", thisDevice.Hostname)
@@ -32,7 +32,7 @@ func BGPLookup(c *packngo.Client, k *kubevip.Config) error {
 	}
 	// Ensure neighbours exist (and it's enabled)
 	if len(neighbours) == 0 {
-		return fmt.Errorf("The server [%s]/[%s] has no BGP neighbours, ensure BGP is enabled", thisDevice.Hostname, thisDevice.ID)
+		return fmt.Errorf("the server [%s]/[%s] has no BGP neighbours, ensure BGP is enabled", thisDevice.Hostname, thisDevice.ID)
 	}
 
 	// Add a warning (TODO)
@@ -42,7 +42,7 @@ func BGPLookup(c *packngo.Client, k *kubevip.Config) error {
 
 	// Ensure a peer exists
 	if len(neighbours[0].PeerIps) == 0 {
-		return fmt.Errorf("The server [%s]/[%s] has no BGP peers, ensure BGP is enabled", thisDevice.Hostname, thisDevice.ID)
+		return fmt.Errorf("the server [%s]/[%s] has no BGP peers, ensure BGP is enabled", thisDevice.Hostname, thisDevice.ID)
 	}
 
 	k.BGPConfig.RouterID = neighbours[0].CustomerIP

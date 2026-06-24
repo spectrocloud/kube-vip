@@ -36,8 +36,6 @@ type testConfig struct {
 func main() {
 	var t testConfig
 
-	t.ImagePath = os.Getenv("E2E_IMAGE_PATH")
-
 	_, t.ignoreSimple = os.LookupEnv("IGNORE_SIMPLE")
 	_, t.ignoreDeployments = os.LookupEnv("IGNORE_DEPLOY")
 	_, t.ignoreLeaderFailover = os.LookupEnv("IGNORE_LEADER")
@@ -46,7 +44,7 @@ func main() {
 	_, t.ignoreEgress = os.LookupEnv("IGNORE_EGRESS")
 	_, t.retainCluster = os.LookupEnv("RETAIN_CLUSTER")
 
-	flag.StringVar(&t.ImagePath, "imagepath", "plndr/kube-vip:action", "")
+	flag.StringVar(&t.ImagePath, "imagepath", os.Getenv("E2E_IMAGE_PATH"), "")
 	flag.BoolVar(&t.ControlPlane, "ControlPlane", false, "")
 	flag.BoolVar(&t.Services, "Services", false, "")
 

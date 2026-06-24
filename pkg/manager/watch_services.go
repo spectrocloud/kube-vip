@@ -130,6 +130,7 @@ func (sm *Manager) servicesWatcher(ctx context.Context, serviceFunc func(context
 			// 1.
 			if !activeService[string(svc.UID)] {
 				wg.Add(1)
+				// #nosec G118 -- cancel func is stored in activeServiceLoadBalancerCancel and called elsewhere
 				activeServiceLoadBalancer[string(svc.UID)], activeServiceLoadBalancerCancel[string(svc.UID)] = context.WithCancel(context.TODO())
 				// Background the services election
 				if sm.config.EnableServicesElection {

@@ -186,6 +186,7 @@ func (sm *Manager) parseAnnotations() error {
 }
 
 func fileExists(filename string) bool {
+	// #nosec G703 -- filename comes from kube-vip's own config, not external input
 	info, err := os.Stat(filename)
 	if os.IsNotExist(err) {
 		return false

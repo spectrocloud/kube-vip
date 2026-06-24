@@ -13,7 +13,7 @@ import (
 // NewBGPServer takes a configuration and returns a running BGP server instance
 func NewBGPServer(c *Config, peerStateChangeCallback func(*api.WatchEventResponse_PeerEvent)) (b *Server, err error) {
 	if c.AS == 0 {
-		return nil, fmt.Errorf("You need to provide AS")
+		return nil, fmt.Errorf("you need to provide AS")
 	}
 
 	if c.SourceIP != "" && c.SourceIF != "" {
@@ -21,7 +21,7 @@ func NewBGPServer(c *Config, peerStateChangeCallback func(*api.WatchEventRespons
 	}
 
 	if len(c.Peers) == 0 {
-		return nil, fmt.Errorf("You need to provide at least one peer")
+		return nil, fmt.Errorf("you need to provide at least one peer")
 	}
 
 	b = &Server{
