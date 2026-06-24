@@ -14,6 +14,7 @@ type Context struct {
 }
 
 func New(ctx context.Context) *Context {
+	// #nosec G118 -- cancel func is stored in the returned Context for later use
 	svcCtx, svcCancel := context.WithCancel(ctx)
 	return &Context{
 		Ctx:    svcCtx,

@@ -41,6 +41,7 @@ func TestParseBgpAnnotations(t *testing.T) {
 	assert.EqualValues(t, 15, bgpConfig.HoldTime, "base bgpConfig.HoldTime should not be overwritten")
 	assert.EqualValues(t, 5, bgpConfig.KeepaliveInterval, "base bgpConfig.KeepaliveInterval should not be overwritten")
 
+	// #nosec G101 -- test fixture with a fake BGP password, not a real credential
 	node.Annotations = map[string]string{
 		"bgp/node-asn": "65000",
 		"bgp/peer-asn": "64000",
@@ -86,6 +87,7 @@ func TestParseNewBgpAnnotations(t *testing.T) {
 		t.Fatal("Parsing BGP annotations should return an error when no annotations exist")
 	}
 
+	// #nosec G101 -- test fixture with a fake BGP password, not a real credential
 	node.Annotations = map[string]string{
 		"bgp/bgp-peers-0-node-asn": "65000",
 		"bgp/bgp-peers-0-peer-asn": "64000",
