@@ -72,6 +72,7 @@ func (p *Processor) AddOrModify(ctx *servicecontext.Context, event watch.Event,
 		// start leader election if it's enabled and not already started
 		if !*leaderElectionActive && p.config.EnableServicesElection {
 			go func() {
+				// #nosec G118 -- cancel func is stored via pointer and called elsewhere
 				*leaderCtx, *cancel = context.WithCancel(ctx.Ctx)
 				startLeaderElection(*leaderCtx, leaderElectionActive, service, serviceFunc)
 			}()
